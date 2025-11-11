@@ -1,8 +1,9 @@
 import time
+import numpy as np
 
 
 class PIDControllerGroup:
-    def __init__(self, use_force=False, use_pressure=False):
+    def __init__(self, use_force=False, use_pressure=False, rep_field = None):
         self.translation_pids = [
             ImpedancePIDController(),  # x
             ImpedancePIDController(),  # y
@@ -34,6 +35,9 @@ class PIDControllerGroup:
             ImpedancePIDController(),  # rz
         ]
 
+        self.rep_field = rep_field
+        self.last_repulsion_offset = np.zeros(3)
+
     def update_translation(self, translations, force_feedback=None):
         # Update x, y
         self.translation_pids[0].update(translations[0])
@@ -53,6 +57,27 @@ class PIDControllerGroup:
             )
         else:
             self.translation_pids[2].update(translations[2])
+
+        stop_now = False
+        if self.rep_field is not None and self.rep_field.safety_margin is not None:
+            # Get intended velocity from PID outputs (before repulsion)
+            current_velocity = np.array([-pid.output for pid in self.translation_pids])
+
+            # Get delta_time from one of the PIDs
+            dt = self.translation_pids[0].current_time - self.translation_pids[0].last_time
+
+            # Get distance from the repulsion field object
+            distance = self.rep_field.distance_coils
+
+            # Compute the braking offset
+            offset_xyz, stop_now = self.rep_field.compute_offset(
+                distance, current_velocity, dt
+            )
+
+            # This offset will be applied in get_outputs()
+            self.last_repulsion_offset = offset_xyz
+
+        return stop_now
 
     def update_rotation(self, angles):
         for pid, angle in zip(self.rotation_pids, angles):
@@ -120,6 +145,11 @@ class PIDControllerGroup:
     def get_outputs(self):
         # Return two lists, negated outputs for translation and rotation respectively
         trans_out = [-pid.output for pid in self.translation_pids]
+
+        trans_out[0] += self.last_repulsion_offset[0]
+        trans_out[1] += self.last_repulsion_offset[1]
+        trans_out[2] += self.last_repulsion_offset[2]
+        
         rot_out = [-pid.output for pid in self.rotation_pids]
         return trans_out, rot_out
 

@@ -16,6 +16,7 @@ from robot.control.algorithms.radially_outward import RadiallyOutwardAlgorithm
 from robot.control.color import Color
 from robot.control.PID import PIDControllerGroup
 from robot.control.robot_state_controller import RobotState, RobotStateController
+from robot.control.repulsion import RepulsionField
 from robot.sensors.force_and_torque_sensor import BufferedForceTorqueSensor
 from robot.sensors.pressure_sensor import BufferedPressureSensorReader
 
@@ -76,9 +77,10 @@ class RobotControl:
         self.force_feedback = None
         self.z_offset = 0
 
+        self.repulsion_filed = RepulsionField()
         # Initialize PID controllers
         self.pid_group = PIDControllerGroup(
-            use_force=self.use_force, use_pressure=self.use_pressure
+            use_force=self.use_force, use_pressure=self.use_pressure, rep_field=self.repulsion_filed
         )
 
         self.force_sensor = None
@@ -360,7 +362,11 @@ class RobotControl:
         translation, angles_as_deg = self.on_coil_to_robot_alignment(displacement)
         # Update PID controllers
         if self.config.get("movement_algorithm") == "directly_PID":
-            self.pid_group.update_translation(translation, self.force_feedback)
+            stop_now = self.pid_group.update_translation(translation, self.force_feedback)
+            if stop_now:
+                self.stop_robot()
+                return
+
             self.pid_group.update_rotation(angles_as_deg)
             self.z_offset = translation[2]
             translation, angles_as_deg = self.pid_group.get_outputs()
@@ -1046,14 +1052,13 @@ class RobotControl:
         if self.robot:
             self.robot.clean_errors()
 
-    def dynamically_update_calculate_pid_constants(self, data):
+    def dynamically_update_distances_coils(self, data):
         distance = data["distance"]
         distance_threshold = data["distance_threshold"]
 
-        if self.config.get("movement_algorithm") == "directly_PID":
-            decay_factor = 0.15
-            factor = np.exp(-decay_factor*np.max([0, ((1*distance_threshold)-distance)]))
-            self.pid_group.update_all_pid_constante(factor)
+        if self.config.get("movement_algorithm") == "directly_PID" :
+            self.repulsion_filed.update_safety_margin(distance_threshold*1.3)
+            self.repulsion_filed.update_distance_coils(distance)
         else:
             if distance < distance_threshold*1.2:
                 self.stop_robot()

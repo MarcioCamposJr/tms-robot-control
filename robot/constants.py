@@ -137,6 +137,12 @@ ROBOT_CONFIG = {
     },
 }
 
+REPULSION_CONFIG = {
+    'strength': 0.01,       # Gain for the inverse-square repulsion force.
+    'stop_distance': 80,     # Emergency stop distance (in mm).
+    'ema': 0.85,            # Smoothing factor for the offset (0 to 1).
+}
+
 # Publisher messages from invesalius
 PUB_MESSAGES = [
     "Neuronavigation to Robot: Connect to robot",
