@@ -214,7 +214,7 @@ def main(connection=None):
         exit(1)
 
     # Configure logging.
-    np.set_printoptions(formatter={"float": "{:0.1f}".format})
+    np.set_printoptions(formatter={'float': '{:.5f}'.format})
 
     # Initialize robot controller
 

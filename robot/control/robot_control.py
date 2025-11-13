@@ -164,10 +164,12 @@ class RobotControl:
         if len(data) > 1:
             poses = data["poses"]
             visibilities = data["visibilities"]
+
             if self.robot_id == 'robot_2':
-                poses[2] = poses[3]
+                poses[2], poses[3] = poses[3], poses[2]
                 visibilities[2] = visibilities[3]
 
+            self.repulsion_filed.update_opposite_coil_vector(poses, visibilities, self.robot_id)
             self.tracker.SetCoordinates(
                 np.vstack([poses[0], poses[1], poses[2]]), [visibilities[0], visibilities[1], visibilities[2]]
             )
@@ -1055,12 +1057,13 @@ class RobotControl:
     def dynamically_update_distances_coils(self, data):
         distance = data["distance"]
         distance_threshold = data["distance_threshold"]
+        print('distances:', distance, distance_threshold)
 
         if self.config.get("movement_algorithm") == "directly_PID" :
-            self.repulsion_filed.update_safety_margin(distance_threshold*1.3)
+            self.repulsion_filed.update_safety_margin(distance_threshold*1.2)
             self.repulsion_filed.update_distance_coils(distance)
         else:
-            if distance < distance_threshold*1.2:
+            if distance < distance_threshold*1.15:
                 self.stop_robot()
 
 

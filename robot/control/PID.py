@@ -60,18 +60,14 @@ class PIDControllerGroup:
 
         stop_now = False
         if self.rep_field is not None and self.rep_field.safety_margin is not None:
-            # Get intended velocity from PID outputs (before repulsion)
-            current_velocity = np.array([-pid.output for pid in self.translation_pids])
-
             # Get delta_time from one of the PIDs
-            dt = self.translation_pids[0].current_time - self.translation_pids[0].last_time
+            dt = self.translation_pids[0].last_delta_time
 
             # Get distance from the repulsion field object
             distance = self.rep_field.distance_coils
-
             # Compute the braking offset
             offset_xyz, stop_now = self.rep_field.compute_offset(
-                distance, current_velocity, dt
+                distance, dt
             )
 
             # This offset will be applied in get_outputs()
@@ -145,7 +141,7 @@ class PIDControllerGroup:
     def get_outputs(self):
         # Return two lists, negated outputs for translation and rotation respectively
         trans_out = [-pid.output for pid in self.translation_pids]
-
+        print("trans_out", trans_out)
         trans_out[0] += self.last_repulsion_offset[0]
         trans_out[1] += self.last_repulsion_offset[1]
         trans_out[2] += self.last_repulsion_offset[2]
@@ -186,6 +182,7 @@ class ImpedancePIDController:
         self.sample_time = 0.0
         self.current_time = time.monotonic()
         self.last_time = self.current_time
+        self.last_delta_time = 0.0
 
         # Independent setpoints
         self.displacement_setpoint = 0.0  # Used in PID mode (desired displacement)
@@ -227,6 +224,7 @@ class ImpedancePIDController:
             return self.output
 
         delta_time = self.sample_time if self.sample_time > 0 else delta_time_actual
+        self.last_delta_time = delta_time
         # Compute displacement error (desired - actual)
         displacement_error = self.displacement_setpoint - feedback_value
 
