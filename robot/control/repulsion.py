@@ -5,7 +5,7 @@ from robot.constants import REPULSION_CONFIG
 class RepulsionField:
     def __init__(self):
         self.cfg = REPULSION_CONFIG
-        self.safety_margin = None
+        self.safety_margin = self.cfg['stop_distance']
         self.distance_coils = None
         self._ema_offset = np.zeros(3, dtype=float)
         self.brake_direction = np.zeros(3, dtype=float)
@@ -26,7 +26,7 @@ class RepulsionField:
         raw_offset = np.zeros(3, dtype=float)
 
         # Emergency stop condition
-        if distance is not None and distance < self.cfg['stop_distance']:
+        if distance is not None and distance < self.cfg['stop_distance']*0.5:
             stop_now = True
             # Return an offset that completely cancels the current velocity
             return self.brake_direction, stop_now

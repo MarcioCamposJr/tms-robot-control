@@ -1056,14 +1056,12 @@ class RobotControl:
 
     def dynamically_update_distances_coils(self, data):
         distance = data["distance"]
-        distance_threshold = data["distance_threshold"]
-        print('distances:', distance, distance_threshold)
+        print('distances:', distance)
 
         if self.config.get("movement_algorithm") == "directly_PID" :
-            self.repulsion_filed.update_safety_margin(distance_threshold*1.2)
             self.repulsion_filed.update_distance_coils(distance)
         else:
-            if distance < distance_threshold*1.15:
+            if distance < 80:
                 self.stop_robot()
 
 

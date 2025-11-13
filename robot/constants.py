@@ -139,7 +139,7 @@ ROBOT_CONFIG = {
 
 REPULSION_CONFIG = {
     'strength': 175,       # Gain for the inverse-square repulsion force.
-    'stop_distance': 80,     # Emergency stop distance (in mm).
+    'stop_distance': 65,     # Emergency stop distance (in mm).
     'ema': 0.20,            # Smoothing factor for the offset (0 to 1).
 }
 
@@ -160,7 +160,7 @@ PUB_MESSAGES = [
     "Neuronavigation to Robot: Set free drive",
     "Neuronavigation to Robot: Check connection robot",
     "Neuronavigation to Robot: Reset collision error",
-    "Neuronavigation to Robot: Dynamically update pid constants",
+    "Neuronavigation to Robot: Dynamically update distance coils",
 ]
 
 FUNCTION_CONNECT_TO_ROBOT = 0
@@ -178,5 +178,5 @@ FUNCTION_SET_OBJECTIVE = 11
 FUNCTION_SET_FREE_DRIVE = 12
 FUNCTION_CHECK_CONNECTION = 13
 FUNCTION_CLEAN_ERRORS = 14
-DYNAMICALLY_UPDATE_PID_CONSTANTS = 15
+DYNAMICALLY_UPDATE_DISTANCE_COILS = 15
 
