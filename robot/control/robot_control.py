@@ -165,7 +165,7 @@ class RobotControl:
             poses = data["poses"]
             visibilities = data["visibilities"]
 
-            if self.robot_id == 'robot_2':
+            if self.robot_id == 'robot_2' and len(poses)> 3:
                 poses[2], poses[3] = poses[3], poses[2]
                 visibilities[2] = visibilities[3]
 
