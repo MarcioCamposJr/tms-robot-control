@@ -1,14 +1,47 @@
 import numpy as np
-from robot.constants import REPULSION_CONFIG
+from robot.constants import REPULSION_CONFIG, PUB_MESSAGES, FUNCTION_UPDATE_REPULSION_CONFIG
+from robot import pub
 
 
 class RepulsionField:
     def __init__(self):
-        self.cfg = REPULSION_CONFIG
+        self.cfg = REPULSION_CONFIG.copy()  # Make a copy to allow instance-specific changes
         self.safety_margin = self.cfg['safety_margin']
         self.distance_coils = None
         self._ema_offset = np.zeros(3, dtype=float)
         self.brake_direction = np.zeros(3, dtype=float)
+        
+        # Subscribe to configuration updates
+        pub.subscribe(
+            self._on_config_update,
+            PUB_MESSAGES[FUNCTION_UPDATE_REPULSION_CONFIG]
+        )
+    
+    def _on_config_update(self, config_updates):
+        """
+        Callback for dynamic configuration updates via pubsub.
+        
+        Args:
+            config_updates (dict): Dictionary with configuration keys to update.
+                                  Valid keys: 'strength', 'safety_margin', 'ema', 'stop_distance'
+        """
+        if not isinstance(config_updates, dict):
+            print(f"RepulsionField: Invalid config update (expected dict, got {type(config_updates)})")
+            return
+        
+        for key, value in config_updates.items():
+            if key in self.cfg:
+                old_value = self.cfg[key]
+                self.cfg[key] = value
+                print(f"RepulsionField: Updated {key} from {old_value} to {value}")
+                
+                # Update safety_margin separately since it's also an instance variable
+                if key == 'safety_margin':
+                    self.safety_margin = value
+            else:
+                print(f"RepulsionField: Unknown config key '{key}' (ignored)")
+        
+        print(f"RepulsionField: Current config: {self.cfg}")
 
     def compute_offset(self, distance, dt):
         """
