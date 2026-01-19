@@ -1,6 +1,5 @@
 import numpy as np
-from robot.constants import REPULSION_CONFIG, PUB_MESSAGES, FUNCTION_UPDATE_REPULSION_CONFIG
-from robot import pub
+from robot.constants import REPULSION_CONFIG
 
 
 class RepulsionField:
@@ -10,16 +9,11 @@ class RepulsionField:
         self.distance_coils = None
         self._ema_offset = np.zeros(3, dtype=float)
         self.brake_direction = np.zeros(3, dtype=float)
-        
-        # Subscribe to configuration updates
-        pub.subscribe(
-            self._on_config_update,
-            PUB_MESSAGES[FUNCTION_UPDATE_REPULSION_CONFIG]
-        )
     
-    def _on_config_update(self, config_updates):
+    def update_config(self, config_updates):
         """
-        Callback for dynamic configuration updates via pubsub.
+        Update configuration parameters dynamically during runtime.
+        Called by RobotControl when receiving config update messages from the server.
         
         Args:
             config_updates (dict): Dictionary with configuration keys to update.

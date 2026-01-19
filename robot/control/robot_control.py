@@ -1063,6 +1063,21 @@ class RobotControl:
         else:
             if distance < 80:
                 self.stop_robot()
+    
+    def on_update_repulsion_config(self, data):
+        """
+        Handler for dynamic RepulsionField configuration updates via Socket.IO.
+        
+        Args:
+            data (dict): Dictionary containing 'config_updates' with parameters to update.
+                        Example: {'config_updates': {'strength': 300, 'safety_margin': 70}}
+        """
+        config_updates = data.get("config_updates", {})
+        if config_updates:
+            print(f"Updating RepulsionField config: {config_updates}")
+            self.repulsion_filed.update_config(config_updates)
+        else:
+            print("Warning: Received empty config_updates in on_update_repulsion_config")
 
 
 
