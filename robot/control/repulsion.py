@@ -39,7 +39,7 @@ class RepulsionField:
         ):
             # The braking force increases with the inverse square of the distance
             brake_magnitude = self.cfg['strength'] * (
-                (self.safety_margin / (distance + 1e-9)) ** 2 
+                (self.safety_margin / (distance + 1e-6)) ** 2 
             )
 
             # The offset is the braking force applied in the correct direction
@@ -50,7 +50,6 @@ class RepulsionField:
         self._ema_offset = (
             self.cfg['ema'] * self._ema_offset + (1 - self.cfg['ema']) * raw_offset
         )
-        print("_ema_offset", self._ema_offset)
         return self._ema_offset, stop_now
 
     def update_safety_margin(self, new_margin):
