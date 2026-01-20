@@ -39,11 +39,16 @@ class RepulsionField:
 
     def compute_offset(self, distance, dt):
         """
-        Calculates a "braking" offset that opposes the current velocity.
+        Calculates a "braking" offset using Soft Barrier potential.
+        
+        This function creates two zones:
+        - Approach zone (working_distance < distance < safety_margin): Gentle repulsion
+        - Working zone (distance < working_distance): Strong exponential repulsion
+        
+        This allows objects to work close together while preventing collision.
 
         Args:
             distance (float): Scalar distance to the other object (in mm).
-            current_velocity (np.ndarray): The robot's current velocity vector.
             dt (float): Delta time to scale the offset.
 
         Returns:
@@ -58,21 +63,32 @@ class RepulsionField:
             # Return an offset that completely cancels the current velocity
             return self.brake_direction, stop_now
 
-        # Repulsion (braking) is only active within the safety margin
+        # Repulsion with working zone (Soft Barrier potential)
         if (
             self.safety_margin is not None
             and distance is not None
             and distance < self.safety_margin
         ):
-            # The braking force increases with the inverse square of the distance
-            brake_magnitude = self.cfg['strength'] * (
-                (self.safety_margin / (distance + 1e-6)) ** 3 
-            )
-
+            # Define working distance (where objects can work close together)
+            working_distance = self.cfg.get('working_distance', 15.0)  # mm
+            
+            if distance > working_distance:
+                # Outside working zone: very soft repulsion (allows approach)
+                normalized = (self.safety_margin - distance) / (self.safety_margin - working_distance)
+                brake_magnitude = self.cfg['strength'] * (normalized ** 2)
+                zone = "APPROACH"
+            else:
+                # Inside working zone: strong exponential repulsion (prevents collision)
+                # Maps distance [0, working_distance] to exponential growth
+                normalized = distance / working_distance
+                brake_magnitude = self.cfg['strength'] * np.exp(2 * (1 - normalized))
+                zone = "WORKING"
+            
             # The offset is the braking force applied in the correct direction
             raw_offset = brake_magnitude * self.brake_direction * dt
 
-            print('brake_magnitude', brake_magnitude, 'brake_direction',self.brake_direction, 'raw_offset', raw_offset, "_ema_offset", self._ema_offset, "dt", dt)
+            print(f'distance: {distance:.1f}mm, brake: {brake_magnitude:.2f}, zone: {zone}, raw_offset: {raw_offset}, dt: {dt:.4f}')
+        
         # EMA smoothing to prevent jerky movements
         self._ema_offset = (
             self.cfg['ema'] * self._ema_offset + (1 - self.cfg['ema']) * raw_offset
