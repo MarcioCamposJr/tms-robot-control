@@ -19,6 +19,7 @@ from robot.control.robot_state_controller import RobotState, RobotStateControlle
 from robot.control.repulsion import RepulsionField
 from robot.sensors.force_and_torque_sensor import BufferedForceTorqueSensor
 from robot.sensors.pressure_sensor import BufferedPressureSensorReader
+from robot.experiments.reproducibility_experiment import ReproducibilityExperiment
 
 
 class RobotObjective(Enum):
@@ -103,6 +104,14 @@ class RobotControl:
         self.last_warning = ""
 
         self.safe_height_defined_by_user = self.config["safe_height"]
+        
+        # Initialize reproducibility experiment
+        self.reproducibility_exp = ReproducibilityExperiment(
+            robot_id=robot_id if robot_id is not None else "robot_unknown",
+            max_trials=20,
+            duration=90.0,
+            output_dir="data/reproducibility"
+        )
 
     def on_robot_connection(self, data):
         robot_ip = data["robot_IP"]
@@ -402,6 +411,16 @@ class RobotControl:
 
     def on_coil_at_target(self, data):
         self.target_reached = data["state"]
+        
+        # If reproducibility experiment is armed and coil reached target, start recording
+        if self.target_reached and self.reproducibility_exp.is_armed():
+            # Capture target position in robot coordinates (fixed for entire trial)
+            target_pos_robot = self.compute_target_in_robot_space()
+            
+            if target_pos_robot is not None:
+                self.reproducibility_exp.start_recording(target_pos=target_pos_robot)
+            else:
+                print("⚠️ Cannot start recording: target position not available")
 
     def connect_to_robot(self, robot_ip):
 
@@ -1046,6 +1065,22 @@ class RobotControl:
             success = self.handle_objective_move_away_from_head()
 
         self.update_navigation_variables(warning)
+        
+        # Reproducibility experiment data collection
+        if self.reproducibility_exp.is_recording():
+            # Get current robot/coil position (target is fixed, captured at start)
+            coil_pos_robot = self.robot_pose_storage.GetRobotPose()
+            
+            # Update experiment with current coil position
+            if coil_pos_robot is not None:
+                trial_complete = self.reproducibility_exp.update(
+                    coil_pos=coil_pos_robot,
+                    timestamp=time.time()
+                )
+                
+                # If trial completed, save data
+                if trial_complete:
+                    self.reproducibility_exp.stop_recording()
 
         return success
     
@@ -1080,6 +1115,68 @@ class RobotControl:
             self.repulsion_filed.update_config(config_updates)
         else:
             print("Warning: Received empty config_updates in on_update_repulsion_config")
+    
+    def on_control_reproducibility_experiment(self, data):
+        """
+        Handler for reproducibility experiment control via Socket.IO.
+        
+        Args:
+            data (dict): Dictionary containing 'action' and optional parameters.
+                        Actions: 'arm', 'status', 'cancel', 'export'
+        """
+        action = data.get("action", "")
+        
+        if action == "arm":
+            # Arm next trial
+            if self.reproducibility_exp.can_arm_trial():
+                success = self.reproducibility_exp.arm_trial()
+                if success:
+                    trial_num = self.reproducibility_exp.get_trial_number()
+                    print(f"⚡ Trial {trial_num}/{self.reproducibility_exp.max_trials} ARMED")
+                    print(f"   Move robot to target position...")
+                    
+                    # Send status via Socket.IO
+                    if self.remote_control:
+                        topic = "Robot to Neuronavigation: Reproducibility experiment status"
+                        status_data = self.reproducibility_exp.get_status()
+                        self.remote_control.send_message(topic, status_data)
+            else:
+                print(f"⚠️ Cannot arm trial - {self.reproducibility_exp.completed_trials} of {self.reproducibility_exp.max_trials} trials completed")
+        
+        elif action == "status":
+            # Return current status
+            status = self.reproducibility_exp.get_status()
+            print(f"📊 Experiment Status:")
+            print(f"   State: {status['state']}")
+            print(f"   Trial: {status['current_trial']}/{status['max_trials']}")
+            print(f"   Completed: {status['completed_trials']}")
+            if status['state'] == 'recording':
+                print(f"   Elapsed: {status['elapsed_time']:.1f}s / {status['duration']}s")
+                print(f"   Samples: {status['samples_collected']}")
+            
+            # Send via Socket.IO
+            if self.remote_control:
+                topic = "Robot to Neuronavigation: Reproducibility experiment status"
+                self.remote_control.send_message(topic, status)
+        
+        elif action == "cancel":
+            # Cancel current trial
+            if self.reproducibility_exp.cancel_current_trial():
+                print("🚫 Current trial cancelled")
+            else:
+                print("⚠️ No active trial to cancel")
+        
+        elif action == "export":
+            # Export summary
+            filepath = self.reproducibility_exp.export_summary()
+            if filepath:
+                print(f"📊 Summary exported to: {filepath}")
+            else:
+                print("⚠️ No data to export")
+        
+        else:
+            print(f"⚠️ Unknown action: {action}")
+            print("   Valid actions: arm, status, cancel, export")
 
 
 

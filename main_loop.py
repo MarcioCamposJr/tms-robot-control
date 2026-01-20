@@ -285,6 +285,7 @@ def main(connection=None):
                             const.FUNCTION_CLEAN_ERRORS: robot_control.on_clean_errors,
                             const.DYNAMICALLY_UPDATE_DISTANCE_COILS: robot_control.dynamically_update_distances_coils,
                             const.FUNCTION_UPDATE_REPULSION_CONFIG: robot_control.on_update_repulsion_config,
+                            const.FUNCTION_CONTROL_REPRODUCIBILITY_EXP: robot_control.on_control_reproducibility_experiment,
                         }
                         get_function[const.PUB_MESSAGES.index(topic[i])](buf[i]["data"])
 
