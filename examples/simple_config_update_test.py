@@ -36,10 +36,11 @@ try:
         'data': {
             'robot_ID': ROBOT_ID,
             'config_updates': {
-                'strength': 25,
-                'safety_margin': 22,
-                'ema': 0.2,
-                'stop_distance':0.1
+                'strength': 17,
+                'safety_margin': 19,
+                'working_distance': 16,
+                'stop_distance':0.1,
+                'ema':0.25
             }
         }
     }

@@ -17,25 +17,26 @@ import sys
 # Configuration
 HOST = "127.0.0.1"
 PORT = 5000
-ROBOT_ID = "robot_1"  # Change to robot_2 if needed
+ROBOT_IDS = ["robot_1", "robot_2"]  # Change to robot_2 if needed
 
 def send_command(sio, action):
     """Send control command to reproducibility experiment."""
-    message = {
-        'topic': 'Neuronavigation to Robot: Control reproducibility experiment',
-        'data': {
-            'robot_ID': ROBOT_ID,
-            'action': action
+    for ROBOT_ID in ROBOT_IDS:
+        message = {
+            'topic': 'Neuronavigation to Robot: Control reproducibility experiment',
+            'data': {
+                'robot_ID': ROBOT_ID,
+                'action': action
+            }
         }
-    }
-    sio.emit('from_neuronavigation', message)
-    print(f"✓ Command '{action}' sent\n")
+        sio.emit('from_neuronavigation', message)
+        print(f"✓ Command '{action}' sent\n")
 
 def main():
     print("=" * 60)
     print("REPRODUCIBILITY EXPERIMENT CONTROL")
     print("=" * 60)
-    print(f"Robot ID: {ROBOT_ID}")
+    print(f"Robot ID: {ROBOT_IDS}")
     print(f"Server: {HOST}:{PORT}\n")
     
     # Create Socket.IO client
@@ -58,7 +59,7 @@ def main():
         print(f"✗ Error connecting to server: {e}")
         print("\nMake sure:")
         print(f"  1. Relay server is running: python relay_server.py {PORT}")
-        print(f"  2. Main loop is running: python main_loop.py {ROBOT_ID}")
+        print(f"  2. Main loop is running: python main_loop.py {ROBOT_IDS}")
         return
     
     try:
@@ -100,7 +101,7 @@ def main():
             elif choice == "4":
                 print("\n--- EXPORT SUMMARY ---")
                 send_command(sio, "export")
-                print(f"Summary will be saved as: data/reproducibility/{ROBOT_ID}_reproducibility_summary.json")
+                print(f"Summary will be saved as: data/reproducibility/{ROBOT_IDS}_reproducibility_summary.json")
                 
             elif choice == "5":
                 print("\n" + "=" * 60)
@@ -117,7 +118,7 @@ def main():
                 print("  6. Repeat from step 1\n")
                 print("After 20 trials:")
                 print("  - Select '4. EXPORT summary' to generate JSON report")
-                print("  - Data files: data/reproducibility/{ROBOT_ID}_trial_XX_*.csv")
+                print("  - Data files: data/reproducibility/{ROBOT_IDS}_trial_XX_*.csv")
                 print("=" * 60)
                 input("\nPress Enter to continue...")
                 
