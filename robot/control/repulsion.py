@@ -85,15 +85,6 @@ class RepulsionField:
     def update_distance_coils(self, new_distance):
         self.distance_coils = new_distance
 
-    def update_opposite_coil_vector(self, poses, visibilities, robot_id):
-        if len(poses)>3 and all(visibilities[1:]):
-                opposite_coil_vector = (np.array(poses[2], dtype=float) - np.array(poses[3], dtype=float))[:3]
-                opposite_subject_vector = (np.array(poses[2], dtype=float) - np.array(poses[1], dtype=float))[:3]
-                opposite_coil_vector_norm = np.linalg.norm(opposite_coil_vector)
-                opposite_subject_vector_norm = np.linalg.norm(opposite_subject_vector)
-                if opposite_coil_vector_norm > 1e-9 and opposite_subject_vector_norm > 1e-9:
-                    self.brake_direction = (opposite_coil_vector/opposite_coil_vector_norm) + (opposite_subject_vector/opposite_subject_vector_norm)
-
-                    if robot_id == "robot_2":
-                        self.brake_direction[2] = - self.brake_direction[2]
+    def update_opposite_coil_vector(self, brake_direction):
+        self.brake_direction = brake_direction
 
