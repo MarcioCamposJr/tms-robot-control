@@ -130,13 +130,14 @@ class ReproducibilityExperiment:
         print(f"   Target position: [{self.target_pos[0]:.2f}, {self.target_pos[1]:.2f}, {self.target_pos[2]:.2f}] mm")
         return True
     
-    def update(self, coil_pos, timestamp):
+    def update(self, coil_pos, target_pos, timestamp):
         """
-        Update trial with new coil position data.
-        Target position is fixed and was captured at start_recording().
+        Update trial with new coil and target position data.
+        Both positions are dynamic and updated each frame.
         
         Args:
             coil_pos (list/array): Current coil/robot position [x, y, z, rx, ry, rz]
+            target_pos (list/array): Current target position in robot space [x, y, z, rx, ry, rz]
             timestamp (float): Current timestamp
         
         Returns:
@@ -147,24 +148,25 @@ class ReproducibilityExperiment:
         
         elapsed_time = timestamp - self.start_time
         
-        # Use fixed target position
+        # Convert to numpy arrays
         coil_pos = np.array(coil_pos) if coil_pos is not None else np.zeros(6)
+        target_pos = np.array(target_pos) if target_pos is not None else np.zeros(6)
         
-        # Calculate error
-        error = self.target_pos - coil_pos
+        # Calculate error dynamically
+        error = target_pos - coil_pos
         error_xyz = error[:3]
         error_total = np.linalg.norm(error_xyz)
         
-        # Store data point (target_pos is fixed, coil_pos changes)
+        # Store data point (both target_pos and coil_pos are dynamic)
         data_point = {
             'timestamp': timestamp,
             'elapsed_time': elapsed_time,
-            'target_x': self.target_pos[0],
-            'target_y': self.target_pos[1],
-            'target_z': self.target_pos[2],
-            'target_rx': self.target_pos[3] if len(self.target_pos) > 3 else 0,
-            'target_ry': self.target_pos[4] if len(self.target_pos) > 4 else 0,
-            'target_rz': self.target_pos[5] if len(self.target_pos) > 5 else 0,
+            'target_x': target_pos[0],
+            'target_y': target_pos[1],
+            'target_z': target_pos[2],
+            'target_rx': target_pos[3] if len(target_pos) > 3 else 0,
+            'target_ry': target_pos[4] if len(target_pos) > 4 else 0,
+            'target_rz': target_pos[5] if len(target_pos) > 5 else 0,
             'coil_x': coil_pos[0],
             'coil_y': coil_pos[1],
             'coil_z': coil_pos[2],
@@ -184,6 +186,7 @@ class ReproducibilityExperiment:
             return True
         
         return False
+
     
     def stop_recording(self):
         """Stop recording and save trial data."""
