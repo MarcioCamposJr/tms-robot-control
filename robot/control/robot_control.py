@@ -414,8 +414,9 @@ class RobotControl:
         
         # If reproducibility experiment is armed and coil reached target, start recording
         if self.target_reached and self.reproducibility_exp.is_armed():
-            # Capture target position in robot coordinates (fixed for entire trial)
-            target_pos_robot = self.compute_target_in_robot_space()
+            # Use the absolute target position in robot space (from head pose)
+            # This is the REAL target position, not computed from displacement
+            target_pos_robot = self.target_pose_in_robot_space_estimated_from_head_pose
             
             if target_pos_robot is not None:
                 self.reproducibility_exp.start_recording(target_pos=target_pos_robot)
