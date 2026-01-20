@@ -30,19 +30,21 @@ try:
     sio.connect(f'http://{HOST}:{PORT}')
     time.sleep(0.5)
     
-    print("Enviando atualização: strength=350, safety_margin=75\n")
     
     message = {
         'topic': 'Neuronavigation to Robot: Update repulsion field config',
         'data': {
             'robot_ID': ROBOT_ID,
             'config_updates': {
-                'strength': 350,
-                'safety_margin': 75
+                'strength': 25,
+                'safety_margin': 22,
+                'ema': 0.2,
+                'stop_distance':0.1
             }
         }
     }
     
+    print(f"Enviando atualização: strength={message['data']['config_updates']['strength']}, safety_margin={message['data']['config_updates']['safety_margin']}\n")
     sio.emit('from_neuronavigation', message)
     print("✓ Mensagem enviada!")
     print("\nVerifique o console do main_loop.py para ver a confirmação da atualização.")

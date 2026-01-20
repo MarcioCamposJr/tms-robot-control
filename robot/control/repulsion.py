@@ -66,7 +66,7 @@ class RepulsionField:
         ):
             # The braking force increases with the inverse square of the distance
             brake_magnitude = self.cfg['strength'] * (
-                (self.safety_margin / (distance + 1e-6)) ** 2 
+                (self.safety_margin / (distance + 1e-6)) ** 3 
             )
 
             # The offset is the braking force applied in the correct direction
