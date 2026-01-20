@@ -138,10 +138,10 @@ ROBOT_CONFIG = {
 }
 
 REPULSION_CONFIG = {
-    'strength': 240,       # Gain for the inverse-square repulsion force.
-    'safety_margin': 65,     # Emergency stop distance (in mm).
+    'strength': 25,       # Gain for the inverse-square repulsion force.
+    'safety_margin': 22,     # Emergency stop distance (in mm).
     'ema': 0.20,            # Smoothing factor for the offset (0 to 1).
-    'stop_distance': 10
+    'stop_distance': 0.1,
 }
 
 # Publisher messages from invesalius

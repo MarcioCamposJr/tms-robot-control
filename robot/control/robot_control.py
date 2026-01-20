@@ -1055,7 +1055,7 @@ class RobotControl:
 
     def dynamically_update_distances_coils(self, data):
         distance = data["distance"]
-        brake_direction = data["brake_direction"]
+        brake_direction = np.array(data["brake_vector"])
 
         if self.config.get("movement_algorithm") == "directly_PID" :
             self.repulsion_filed.update_distance_coils(distance)
