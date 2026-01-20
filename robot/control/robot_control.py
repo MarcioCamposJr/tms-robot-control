@@ -414,8 +414,9 @@ class RobotControl:
         
         # If reproducibility experiment is armed and coil reached target, start recording
         if self.target_reached and self.reproducibility_exp.is_armed():
-            # Capture target position in robot coordinates (fixed for entire trial)
-            target_pos_robot = self.compute_target_in_robot_space()
+            # Use the absolute target position in robot space (from head pose)
+            # This is the REAL target position, not computed from displacement
+            target_pos_robot = self.target_pose_in_robot_space_estimated_from_head_pose
             
             if target_pos_robot is not None:
                 self.reproducibility_exp.start_recording(target_pos=target_pos_robot)
@@ -1068,19 +1069,22 @@ class RobotControl:
         
         # Reproducibility experiment data collection
         if self.reproducibility_exp.is_recording():
-            # Get current robot/coil position (target is fixed, captured at start)
+            # Get current robot/coil position and target position (both dynamic)
             coil_pos_robot = self.robot_pose_storage.GetRobotPose()
+            target_pos_robot = self.target_pose_in_robot_space_estimated_from_head_pose
             
-            # Update experiment with current coil position
-            if coil_pos_robot is not None:
+            # Update experiment with current positions (both update as head moves)
+            if coil_pos_robot is not None and target_pos_robot is not None:
                 trial_complete = self.reproducibility_exp.update(
                     coil_pos=coil_pos_robot,
+                    target_pos=target_pos_robot,
                     timestamp=time.time()
                 )
                 
                 # If trial completed, save data
                 if trial_complete:
                     self.reproducibility_exp.stop_recording()
+
 
         return success
     
