@@ -27,6 +27,8 @@ class RemoteControl:
         self.__sio.on("restart_robot_main_loop", self.__on_restart_main_loop)
         self.__lock = Lock()
 
+        self.last_nav_update_time = time.time()  # Track last navigation update
+
     def __on_connect(self):
         print("Connected to {}".format(self.__remote_host))
         self.__connected = True
@@ -38,9 +40,9 @@ class RemoteControl:
     def __on_message_receive(self, msg):
         robot_id = msg.get('data', {}).get('robot_ID', None)
         if robot_id == self.__robot_id:
-            self.__lock.acquire()
-            self.__buffer.append(msg)
-            self.__lock.release()
+            with self.__lock:
+                self.__buffer.append(msg)
+                self.last_nav_update_time = time.time()  # Refresh on any incoming data
 
     def __on_restart_main_loop(self):
         """Restarts the current program.
@@ -60,6 +62,9 @@ class RemoteControl:
         self.__buffer = []
         self.__lock.release()
         return res
+
+    def get_time_since_last_update(self):
+        return time.time() - self.last_nav_update_time
 
     def connect(self):
         self.__sio.connect(self.__remote_host)
@@ -286,6 +291,11 @@ def main(connection=None):
                             const.DYNAMICALLY_UPDATE_DISTANCE_COILS: robot_control.dynamically_update_distances_coils,
                             const.FUNCTION_UPDATE_REPULSION_CONFIG: robot_control.on_update_repulsion_config,
                             const.FUNCTION_CONTROL_REPRODUCIBILITY_EXP: robot_control.on_control_reproducibility_experiment,
+                            const.FUNCTION_SET_PRESSURE_SET_POINT: robot_control.on_set_pressure_set_point,
+                            const.FUNCTION_UPDATE_CONFIG: robot_control.set_config,
+                            const.FUNCTION_UPDATE_PID: robot_control.update_pid_values,
+                            const.FUNCTION_REQUEST_CONFIG: robot_control.send_config,
+                            const.FUNCTION_REQUEST_PID: robot_control.send_pid_factors,
                         }
                         get_function[const.PUB_MESSAGES.index(topic[i])](buf[i]["data"])
 
