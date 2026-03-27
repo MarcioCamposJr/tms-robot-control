@@ -9,6 +9,8 @@ class RepulsionField:
         self.distance_coils = None
         self._ema_offset = np.zeros(3, dtype=float)
         self.brake_direction = np.zeros(3, dtype=float)
+        self.last_brake_magnitude = 0.0
+        self.last_zone = "NONE"
     
     def update_config(self, config_updates):
         """
@@ -56,10 +58,14 @@ class RepulsionField:
         """
         stop_now = False
         raw_offset = np.zeros(3, dtype=float)
+        brake_magnitude = 0.0
+        zone = "NONE"
 
         # Emergency stop condition
         if distance is not None and distance < self.cfg['stop_distance']:
             stop_now = True
+            self.last_brake_magnitude = float('inf')
+            self.last_zone = "EMERGENCY_STOP"
             # Return an offset that completely cancels the current velocity
             return self.brake_direction, stop_now
 
@@ -88,6 +94,11 @@ class RepulsionField:
             raw_offset = brake_magnitude * self.brake_direction * dt
 
             print(f'distance: {distance:.1f}mm, brake: {brake_magnitude:.2f}, zone: {zone}, raw_offset: {raw_offset}, dt: {dt:.4f}')
+
+        # Store for external access (e.g., reproducibility experiment)
+        # Use norm of raw_offset as intensity — it reflects the actual applied repulsion (includes dt)
+        self.last_brake_magnitude = float(np.linalg.norm(raw_offset))
+        self.last_zone = zone
         
         # EMA smoothing to prevent jerky movements
         self._ema_offset = (

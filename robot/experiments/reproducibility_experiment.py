@@ -130,7 +130,7 @@ class ReproducibilityExperiment:
         print(f"   Target position: [{self.target_pos[0]:.2f}, {self.target_pos[1]:.2f}, {self.target_pos[2]:.2f}] mm")
         return True
     
-    def update(self, coil_pos, target_pos, timestamp):
+    def update(self, coil_pos, target_pos, timestamp, distance_coils=None, repulsion_intensity=0.0, repulsion_zone="NONE"):
         """
         Update trial with new coil and target position data.
         Both positions are dynamic and updated each frame.
@@ -139,6 +139,9 @@ class ReproducibilityExperiment:
             coil_pos (list/array): Current coil/robot position [x, y, z, rx, ry, rz]
             target_pos (list/array): Current target position in robot space [x, y, z, rx, ry, rz]
             timestamp (float): Current timestamp
+            distance_coils (float): Distance between the two robots/coils in mm
+            repulsion_intensity (float): Current repulsion brake magnitude
+            repulsion_zone (str): Current repulsion zone ("NONE", "APPROACH", or "WORKING")
         
         Returns:
             bool: True if trial is complete, False otherwise
@@ -176,7 +179,10 @@ class ReproducibilityExperiment:
             'error_x': error_xyz[0],
             'error_y': error_xyz[1],
             'error_z': error_xyz[2],
-            'error_total': error_total
+            'error_total': error_total,
+            'distance_coils': distance_coils if distance_coils is not None else -1,
+            'repulsion_intensity': repulsion_intensity,
+            'repulsion_zone': repulsion_zone
         }
         
         self.trial_data.append(data_point)

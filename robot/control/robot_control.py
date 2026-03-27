@@ -1160,12 +1160,20 @@ class RobotControl:
             coil_pos_robot = self.robot_pose_storage.GetRobotPose()
             target_pos_robot = self.target_pose_in_robot_space_estimated_from_head_pose
             
-            # Update experiment with current positions (both update as head moves)
+            # Get repulsion data
+            distance_coils = self.repulsion_filed.distance_coils
+            repulsion_intensity = self.repulsion_filed.last_brake_magnitude
+            repulsion_zone = self.repulsion_filed.last_zone
+            
+            # Update experiment with current positions and repulsion data
             if coil_pos_robot is not None and target_pos_robot is not None:
                 trial_complete = self.reproducibility_exp.update(
                     coil_pos=coil_pos_robot,
                     target_pos=target_pos_robot,
-                    timestamp=time.time()
+                    timestamp=time.time(),
+                    distance_coils=distance_coils,
+                    repulsion_intensity=repulsion_intensity,
+                    repulsion_zone=repulsion_zone
                 )
                 
                 # If trial completed, save data
@@ -1218,6 +1226,128 @@ class RobotControl:
             self.repulsion_filed.update_config(config_updates)
         else:
             print("Warning: Received empty config_updates in on_update_repulsion_config")
+
+    def send_config(self, data):
+        self.remote_control.send_message(
+                    "Robot to Neuronavigation: Initial config",
+                    {"config": self.config},
+                )
+    
+    def set_config(self, data: dict):
+        """
+        Update runtime configuration parameters from neuronavigation.
+        Only keys already present in the config dictionary can be updated.
+        Automatically casts values to the correct type.
+        """
+
+        # Allowed editable config keys
+        editable_keys = set(self.config.keys())
+
+        changed = {}
+
+        for key, new_value in data.items():
+            if key not in editable_keys:
+                print(f"[Config] Ignoring unknown config parameter: {key}")
+                continue
+
+            old_value = self.config[key]
+
+            # --- Convert types dynamically ---
+            if isinstance(old_value, bool):
+                new_value = str(new_value).lower() == "true"
+
+            elif isinstance(old_value, int):
+                new_value = int(new_value)
+
+            elif isinstance(old_value, float):
+                new_value = float(new_value)
+
+            elif new_value == "" and old_value is None:
+                new_value = None
+
+            # Assign new value
+            self.config[key] = new_value
+            changed[key] = (old_value, new_value)
+
+        # Print changes
+        if changed:
+            self.setup_sensors()
+            print(f"{Color.BOLD}Updated configuration parameters:{Color.END}")
+            for key, (old, new) in changed.items():
+                print(f" - {key}: {old} → {Color.BOLD}{new}{Color.END}")
+        else:
+            print("[Config] No valid configuration parameters updated.")
+    
+    def update_pid_values(self, pids_factors: dict):
+        if "translations" in pids_factors and "rotations" in pids_factors:
+            self.pid_group.update_pid_factors(pids_factors["translations"], pids_factors["rotations"])
+    
+    def send_pid_factors(self, data):
+        self.remote_control.send_message(
+                "Robot to Dashboard: PID factors",
+                {"pid_factors": self.pid_group.get_pid_factors()})
+        
+    def on_control_reproducibility_experiment(self, data):
+        """
+        Handler for reproducibility experiment control via Socket.IO.
+        
+        Args:
+            data (dict): Dictionary containing 'action' and optional parameters.
+                        Actions: 'arm', 'status', 'cancel', 'export'
+        """
+        action = data.get("action", "")
+        
+        if action == "arm":
+            # Arm next trial
+            if self.reproducibility_exp.can_arm_trial():
+                success = self.reproducibility_exp.arm_trial()
+                if success:
+                    trial_num = self.reproducibility_exp.get_trial_number()
+                    print(f"⚡ Trial {trial_num}/{self.reproducibility_exp.max_trials} ARMED")
+                    print(f"   Move robot to target position...")
+                    
+                    # Send status via Socket.IO
+                    if self.remote_control:
+                        topic = "Robot to Neuronavigation: Reproducibility experiment status"
+                        status_data = self.reproducibility_exp.get_status()
+                        self.remote_control.send_message(topic, status_data)
+            else:
+                print(f"⚠️ Cannot arm trial - {self.reproducibility_exp.completed_trials} of {self.reproducibility_exp.max_trials} trials completed")
+        
+        elif action == "status":
+            # Return current status
+            status = self.reproducibility_exp.get_status()
+            print(f"📊 Experiment Status:")
+            print(f"   State: {status['state']}")
+            print(f"   Trial: {status['current_trial']}/{status['max_trials']}")
+            print(f"   Completed: {status['completed_trials']}")
+            if status['state'] == 'recording':
+                print(f"   Elapsed: {status['elapsed_time']:.1f}s / {status['duration']}s")
+                print(f"   Samples: {status['samples_collected']}")
+            
+            # Send via Socket.IO
+            if self.remote_control:
+                topic = "Robot to Neuronavigation: Reproducibility experiment status"
+                self.remote_control.send_message(topic, status)
+        
+        elif action == "cancel":
+            # Cancel current trial
+            if self.reproducibility_exp.cancel_current_trial():
+                print("🚫 Current trial cancelled")
+            else:
+                print("⚠️ No active trial to cancel")
+        
+        elif action == "export":
+            # Export summary
+            filepath = self.reproducibility_exp.export_summary()
+            if filepath:
+                print(f"📊 Summary exported to: {filepath}")
+            else:
+                print("⚠️ No data to export")
+        
+        else:
+            print(f"⚠️ Unknown action: {action}")
+            print("   Valid actions: arm, status, cancel, export")
 
 
 
