@@ -1,16 +1,16 @@
 """
 Reproducibility Experiment System
 
-This module implements an automated data collection system for testing 
+This module implements a data collection system for testing 
 robot positioning reproducibility. 
 
 Features:
-- Manual trial arming (user positions robot, then arms system)
-- Automatic recording when coil reaches target
-- 90 second data collection per trial
-- Up to 20 trials with data export
+- Recording starts when user sends "go" (TRACK_TARGET objective)
+- Recording stops manually when user sends "stop"
+- Unlimited trials with sequential indexing
+- On export, user provides a base filename; each trial gets an index
 - Robot ID included in filenames
-- Target position in robot coordinate space
+- Target position tracked dynamically
 """
 
 import time
@@ -18,48 +18,41 @@ import csv
 import json
 import os
 from datetime import datetime
-from enum import Enum
 import numpy as np
 
 
-class ExperimentState(Enum):
+class ExperimentState:
     IDLE = "idle"
-    ARMED = "armed"
     RECORDING = "recording"
     SAVING = "saving"
 
 
 class ReproducibilityExperiment:
     """
-    Manages reproducibility experiment trials with manual arming.
+    Manages reproducibility experiment trials.
     
     Workflow:
-    1. User arms the trial (arm_trial)
-    2. System waits for "coil at target"
-    3. Automatically records for duration seconds
-    4. Saves data and returns to IDLE
-    5. Repeat up to max_trials times
+    1. User sends "go" (TRACK_TARGET) → recording starts
+    2. Data is collected each frame
+    3. User sends "stop" → recording stops and data is saved
+    4. Repeat as many times as needed
+    5. User sends "export" with a filename → all trials exported
     """
     
-    def __init__(self, robot_id, max_trials=20, duration=90.0, output_dir="data/reproducibility"):
+    def __init__(self, robot_id, output_dir="data/reproducibility"):
         """
         Initialize reproducibility experiment.
         
         Args:
             robot_id (str): Robot identifier (e.g., "robot_1", "robot_2")
-            max_trials (int): Maximum number of trials to run
-            duration (float): Duration of each trial in seconds
             output_dir (str): Directory to save data files
         """
         self.robot_id = robot_id
-        self.max_trials = max_trials
-        self.duration = duration
         self.output_dir = output_dir
         
         # State management
         self.state = ExperimentState.IDLE
         self.current_trial = 0
-        self.completed_trials = 0
         
         # Data collection
         self.trial_data = []
@@ -73,61 +66,34 @@ class ReproducibilityExperiment:
         os.makedirs(output_dir, exist_ok=True)
         
         print(f"ReproducibilityExperiment initialized for {robot_id}")
-        print(f"Max trials: {max_trials}, Duration: {duration}s, Output: {output_dir}")
-    
-    def can_arm_trial(self):
-        """Check if a new trial can be armed."""
-        return (self.state == ExperimentState.IDLE and 
-                self.completed_trials < self.max_trials)
-    
-    def arm_trial(self):
-        """
-        Arm the next trial. System will wait for "coil at target" to start recording.
-        
-        Returns:
-            bool: True if armed successfully, False otherwise
-        """
-        if not self.can_arm_trial():
-            print(f"Cannot arm trial: state={self.state.value}, completed={self.completed_trials}/{self.max_trials}")
-            return False
-        
-        self.current_trial = self.completed_trials + 1
-        self.state = ExperimentState.ARMED
-        self.trial_data = []
-        
-        print(f"⚡ Trial {self.current_trial}/{self.max_trials} ARMED - Waiting for coil at target...")
-        return True
-    
-    def is_armed(self):
-        """Check if system is armed and waiting for target."""
-        return self.state == ExperimentState.ARMED
+        print(f"Output: {output_dir}")
     
     def is_recording(self):
         """Check if currently recording data."""
         return self.state == ExperimentState.RECORDING
     
-    def start_recording(self, target_pos):
+    def start_recording(self, target_pos=None):
         """
-        Start recording data when coil reaches target.
+        Start recording data for a new trial.
+        Called when user sends "go" (TRACK_TARGET objective).
         
         Args:
-            target_pos (list/array): Target position in robot coordinates [x, y, z, rx, ry, rz]
-                                    This is captured once and remains fixed for the trial.
+            target_pos (list/array, optional): Initial target position in robot coordinates [x, y, z, rx, ry, rz]
         """
-        if self.state != ExperimentState.ARMED:
-            print(f"Cannot start recording: state={self.state.value}")
+        if self.state == ExperimentState.RECORDING:
+            print("Already recording, ignoring start_recording call")
             return False
         
+        self.current_trial += 1
         self.state = ExperimentState.RECORDING
         self.start_time = time.time()
         self.trial_start_timestamp = datetime.now()
         self.trial_data = []
         
-        # Store target position (fixed for entire trial)
-        self.target_pos = np.array(target_pos) if target_pos is not None else np.zeros(6)
-        
-        print(f"🔴 Trial {self.current_trial}/{self.max_trials} - RECORDING ({self.duration}s)...")
-        print(f"   Target position: [{self.target_pos[0]:.2f}, {self.target_pos[1]:.2f}, {self.target_pos[2]:.2f}] mm")
+        print(f"🔴 Trial {self.current_trial} - RECORDING started...")
+        if target_pos is not None:
+            target_pos = np.array(target_pos)
+            print(f"   Initial target: [{target_pos[0]:.2f}, {target_pos[1]:.2f}, {target_pos[2]:.2f}] mm")
         return True
     
     def update(self, coil_pos, target_pos, timestamp, distance_coils=None, repulsion_intensity=0.0, repulsion_zone="NONE"):
@@ -142,12 +108,9 @@ class ReproducibilityExperiment:
             distance_coils (float): Distance between the two robots/coils in mm
             repulsion_intensity (float): Current repulsion brake magnitude
             repulsion_zone (str): Current repulsion zone ("NONE", "APPROACH", or "WORKING")
-        
-        Returns:
-            bool: True if trial is complete, False otherwise
         """
         if self.state != ExperimentState.RECORDING:
-            return False
+            return
         
         elapsed_time = timestamp - self.start_time
         
@@ -160,7 +123,7 @@ class ReproducibilityExperiment:
         error_xyz = error[:3]
         error_total = np.linalg.norm(error_xyz)
         
-        # Store data point (both target_pos and coil_pos are dynamic)
+        # Store data point
         data_point = {
             'timestamp': timestamp,
             'elapsed_time': elapsed_time,
@@ -186,18 +149,12 @@ class ReproducibilityExperiment:
         }
         
         self.trial_data.append(data_point)
-        
-        # Check if duration exceeded
-        if elapsed_time >= self.duration:
-            return True
-        
-        return False
 
     
     def stop_recording(self):
         """Stop recording and save trial data."""
         if self.state != ExperimentState.RECORDING:
-            print(f"Cannot stop recording: state={self.state.value}")
+            print(f"Cannot stop recording: state={self.state}")
             return False
         
         self.state = ExperimentState.SAVING
@@ -206,24 +163,19 @@ class ReproducibilityExperiment:
         self._save_trial_data()
         
         # Update state
-        self.completed_trials += 1
         self.state = ExperimentState.IDLE
         
-        print(f"✅ Trial {self.current_trial}/{self.max_trials} complete! ({len(self.trial_data)} samples)")
-        
-        if self.completed_trials < self.max_trials:
-            print(f"💡 Position robot for trial {self.completed_trials + 1} and send 'arm' command")
-        else:
-            print(f"🎉 All {self.max_trials} trials completed! Use 'export' to generate summary.")
+        print(f"✅ Trial {self.current_trial} complete! ({len(self.trial_data)} samples)")
         
         return True
     
     def cancel_current_trial(self):
         """Cancel current trial without saving."""
-        if self.state in [ExperimentState.ARMED, ExperimentState.RECORDING]:
+        if self.state == ExperimentState.RECORDING:
             self.state = ExperimentState.IDLE
             self.trial_data = []
-            print(f"🚫 Trial {self.current_trial} cancelled")
+            self.current_trial -= 1  # Don't count cancelled trial
+            print(f"🚫 Trial cancelled")
             return True
         return False
     
@@ -246,17 +198,14 @@ class ReproducibilityExperiment:
         """
         status = {
             'robot_id': self.robot_id,
-            'state': self.state.value,
+            'state': self.state,
             'current_trial': self.current_trial,
-            'completed_trials': self.completed_trials,
-            'max_trials': self.max_trials,
-            'duration': self.duration,
+            'completed_trials': len(self.trial_results),
             'samples_collected': len(self.trial_data) if self.trial_data else 0
         }
         
         if self.state == ExperimentState.RECORDING:
             status['elapsed_time'] = self.get_elapsed_time()
-            status['remaining_time'] = max(0, self.duration - status['elapsed_time'])
         
         return status
     
@@ -266,7 +215,7 @@ class ReproducibilityExperiment:
             print("Warning: No data to save")
             return
         
-        # Generate filename with robot_id
+        # Generate filename with robot_id and trial index
         timestamp_str = self.trial_start_timestamp.strftime("%Y%m%d_%H%M%S")
         filename = f"{self.robot_id}_trial_{self.current_trial:02d}_{timestamp_str}.csv"
         filepath = os.path.join(self.output_dir, filename)
@@ -281,11 +230,13 @@ class ReproducibilityExperiment:
         errors = np.array([d['error_total'] for d in self.trial_data])
         errors_xyz = np.array([[d['error_x'], d['error_y'], d['error_z']] for d in self.trial_data])
         
+        duration = self.trial_data[-1]['elapsed_time'] if self.trial_data else 0
+        
         trial_result = {
             'trial_number': self.current_trial,
             'robot_id': self.robot_id,
             'start_time': self.trial_start_timestamp.isoformat(),
-            'duration': self.duration,
+            'duration': duration,
             'samples_collected': len(self.trial_data),
             'mean_error': float(np.mean(errors)),
             'std_error': float(np.std(errors)),
@@ -309,21 +260,34 @@ class ReproducibilityExperiment:
         print(f"📁 Data saved to: {filename}")
         print(f"   Mean error: {trial_result['mean_error']:.3f}mm, Std: {trial_result['std_error']:.3f}mm")
     
-    def export_summary(self):
-        """Export summary of all trials to JSON."""
+    def export_summary(self, base_filename=None):
+        """
+        Export summary of all trials to JSON.
+        
+        Args:
+            base_filename (str, optional): Base name for the export file.
+                                           If provided, files are named: {base_filename}_trial_01.csv, etc.
+                                           Summary is named: {base_filename}_summary.json
+                                           If not provided, uses robot_id as base.
+        
+        Returns:
+            str: Path to the summary file, or None if no trials.
+        """
         if not self.trial_results:
             print("No trials to export")
             return None
         
+        # Use provided name or default to robot_id
+        name = base_filename if base_filename else f"{self.robot_id}_reproducibility"
+        
         # Calculate overall statistics
         all_mean_errors = [t['mean_error'] for t in self.trial_results]
-        all_std_errors = [t['std_error'] for t in self.trial_results]
         
         summary = {
             'robot_id': self.robot_id,
             'experiment_date': datetime.now().isoformat(),
+            'base_filename': name,
             'total_trials': len(self.trial_results),
-            'duration_per_trial': self.duration,
             'trials': self.trial_results,
             'overall_statistics': {
                 'mean_error_across_trials': float(np.mean(all_mean_errors)),
@@ -333,14 +297,15 @@ class ReproducibilityExperiment:
             }
         }
         
-        # Save summary with robot_id
-        filename = f"{self.robot_id}_reproducibility_summary.json"
+        # Save summary
+        filename = f"{name}_summary.json"
         filepath = os.path.join(self.output_dir, filename)
         
         with open(filepath, 'w') as f:
             json.dump(summary, f, indent=2)
         
         print(f"📊 Summary exported to: {filename}")
+        print(f"   Total trials: {len(self.trial_results)}")
         print(f"   Overall mean error: {summary['overall_statistics']['mean_error_across_trials']:.3f}mm")
         
         return filepath

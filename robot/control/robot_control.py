@@ -104,8 +104,6 @@ class RobotControl:
         # Initialize reproducibility experiment
         self.reproducibility_exp = ReproducibilityExperiment(
             robot_id=robot_id if robot_id is not None else "robot_unknown",
-            max_trials=20,
-            duration=90.0,
             output_dir="data/reproducibility"
         )
 
@@ -436,17 +434,6 @@ class RobotControl:
 
     def on_coil_at_target(self, data):
         self.target_reached = data["state"]
-        
-        # If reproducibility experiment is armed and coil reached target, start recording
-        if self.target_reached and self.reproducibility_exp.is_armed():
-            # Use the absolute target position in robot space (from head pose)
-            # This is the REAL target position, not computed from displacement
-            target_pos_robot = self.target_pose_in_robot_space_estimated_from_head_pose
-            
-            if target_pos_robot is not None:
-                self.reproducibility_exp.start_recording(target_pos=target_pos_robot)
-            else:
-                print("⚠️ Cannot start recording: target position not available")
 
     def connect_to_robot(self, robot_ip):
 
@@ -1167,7 +1154,7 @@ class RobotControl:
             
             # Update experiment with current positions and repulsion data
             if coil_pos_robot is not None and target_pos_robot is not None:
-                trial_complete = self.reproducibility_exp.update(
+                self.reproducibility_exp.update(
                     coil_pos=coil_pos_robot,
                     target_pos=target_pos_robot,
                     timestamp=time.time(),
@@ -1175,10 +1162,6 @@ class RobotControl:
                     repulsion_intensity=repulsion_intensity,
                     repulsion_zone=repulsion_zone
                 )
-                
-                # If trial completed, save data
-                if trial_complete:
-                    self.reproducibility_exp.stop_recording()
 
 
         return success
@@ -1293,36 +1276,46 @@ class RobotControl:
         
         Args:
             data (dict): Dictionary containing 'action' and optional parameters.
-                        Actions: 'arm', 'status', 'cancel', 'export'
+                        Actions: 'stop', 'status', 'cancel', 'export'
         """
         action = data.get("action", "")
         
-        if action == "arm":
-            # Arm next trial
-            if self.reproducibility_exp.can_arm_trial():
-                success = self.reproducibility_exp.arm_trial()
-                if success:
-                    trial_num = self.reproducibility_exp.get_trial_number()
-                    print(f"⚡ Trial {trial_num}/{self.reproducibility_exp.max_trials} ARMED")
-                    print(f"   Move robot to target position...")
-                    
-                    # Send status via Socket.IO
-                    if self.remote_control:
-                        topic = "Robot to Neuronavigation: Reproducibility experiment status"
-                        status_data = self.reproducibility_exp.get_status()
-                        self.remote_control.send_message(topic, status_data)
+        if action == "start":
+            # Start recording a new trial
+            target_pos_robot = getattr(self, 'target_pose_in_robot_space_estimated_from_head_pose', None)
+            if self.reproducibility_exp.start_recording(target_pos=target_pos_robot):
+                print(f"🔴 Recording started (trial {self.reproducibility_exp.get_trial_number()})")
+                
+                # Send status via Socket.IO
+                if self.remote_control:
+                    topic = "Robot to Neuronavigation: Reproducibility experiment status"
+                    status_data = self.reproducibility_exp.get_status()
+                    self.remote_control.send_message(topic, status_data)
             else:
-                print(f"⚠️ Cannot arm trial - {self.reproducibility_exp.completed_trials} of {self.reproducibility_exp.max_trials} trials completed")
+                print("⚠️ Cannot start recording (already recording?)")
+        
+        elif action == "stop":
+            # Stop recording and save data
+            if self.reproducibility_exp.stop_recording():
+                print(f"⏹️ Recording stopped and data saved")
+                
+                # Send status via Socket.IO
+                if self.remote_control:
+                    topic = "Robot to Neuronavigation: Reproducibility experiment status"
+                    status_data = self.reproducibility_exp.get_status()
+                    self.remote_control.send_message(topic, status_data)
+            else:
+                print("⚠️ Not currently recording")
         
         elif action == "status":
             # Return current status
             status = self.reproducibility_exp.get_status()
             print(f"📊 Experiment Status:")
             print(f"   State: {status['state']}")
-            print(f"   Trial: {status['current_trial']}/{status['max_trials']}")
+            print(f"   Trial: {status['current_trial']}")
             print(f"   Completed: {status['completed_trials']}")
             if status['state'] == 'recording':
-                print(f"   Elapsed: {status['elapsed_time']:.1f}s / {status['duration']}s")
+                print(f"   Elapsed: {status['elapsed_time']:.1f}s")
                 print(f"   Samples: {status['samples_collected']}")
             
             # Send via Socket.IO
@@ -1331,15 +1324,16 @@ class RobotControl:
                 self.remote_control.send_message(topic, status)
         
         elif action == "cancel":
-            # Cancel current trial
+            # Cancel current trial without saving
             if self.reproducibility_exp.cancel_current_trial():
                 print("🚫 Current trial cancelled")
             else:
                 print("⚠️ No active trial to cancel")
         
         elif action == "export":
-            # Export summary
-            filepath = self.reproducibility_exp.export_summary()
+            # Export summary — user can provide a base filename
+            base_filename = data.get("filename", None)
+            filepath = self.reproducibility_exp.export_summary(base_filename=base_filename)
             if filepath:
                 print(f"📊 Summary exported to: {filepath}")
             else:
@@ -1347,7 +1341,7 @@ class RobotControl:
         
         else:
             print(f"⚠️ Unknown action: {action}")
-            print("   Valid actions: arm, status, cancel, export")
+            print("   Valid actions: start, stop, status, cancel, export")
 
 
 
