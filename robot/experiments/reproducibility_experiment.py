@@ -90,21 +90,33 @@ class ReproducibilityExperiment:
         self.trial_start_timestamp = datetime.now()
         self.trial_data = []
         
+        # Reset head velocity tracking
+        self._prev_head_pose = None
+        self._prev_timestamp = None
+        
         print(f"🔴 Trial {self.current_trial} - RECORDING started...")
         if target_pos is not None:
             target_pos = np.array(target_pos)
             print(f"   Initial target: [{target_pos[0]:.2f}, {target_pos[1]:.2f}, {target_pos[2]:.2f}] mm")
         return True
     
-    def update(self, coil_pos, target_pos, timestamp, distance_coils=None, repulsion_intensity=0.0, repulsion_zone="NONE"):
+    def update(self, coil_pos, raw_displacement, timestamp, head_pose=None, target_from_displacement=None, target_from_head=None, distance_coils=None, repulsion_intensity=0.0, repulsion_zone="NONE"):
         """
-        Update trial with new coil and target position data.
-        Both positions are dynamic and updated each frame.
+        Update trial with new data.
+        
+        The primary error metric is raw_displacement — the vector from the coil to the target
+        as computed by neuronavigation, BEFORE PID processing. Its norm is the positioning error.
+        
+        Head pose is recorded for computing head movement velocity between frames.
         
         Args:
-            coil_pos (list/array): Current coil/robot position [x, y, z, rx, ry, rz]
-            target_pos (list/array): Current target position in robot space [x, y, z, rx, ry, rz]
+            coil_pos (list/array): Current robot TCP pose [x, y, z, rx, ry, rz] (from robot encoders)
+            raw_displacement (list/array): Displacement from coil to target [dx, dy, dz, drx, dry, drz]
+                                           (before PID - THIS is the actual error)
             timestamp (float): Current timestamp
+            head_pose (list/array): Head pose in robot space [x, y, z, rx, ry, rz] (for velocity calculation)
+            target_from_displacement (list/array): Target estimated as robot_pose + displacement
+            target_from_head (list/array): Target estimated from head tracker + calibration
             distance_coils (float): Distance between the two robots/coils in mm
             repulsion_intensity (float): Current repulsion brake magnitude
             repulsion_zone (str): Current repulsion zone ("NONE", "APPROACH", or "WORKING")
@@ -115,34 +127,76 @@ class ReproducibilityExperiment:
         elapsed_time = timestamp - self.start_time
         
         # Convert to numpy arrays
-        coil_pos = np.array(coil_pos) if coil_pos is not None else np.zeros(6)
-        target_pos = np.array(target_pos) if target_pos is not None else np.zeros(6)
+        coil = np.array(coil_pos) if coil_pos is not None else np.zeros(6)
+        disp = np.array(raw_displacement) if raw_displacement is not None else np.zeros(6)
+        head = np.array(head_pose) if head_pose is not None else np.zeros(6)
+        tgt_disp = np.array(target_from_displacement) if target_from_displacement is not None else np.zeros(6)
+        tgt_head = np.array(target_from_head) if target_from_head is not None else np.zeros(6)
         
-        # Calculate error dynamically
-        error = target_pos - coil_pos
-        error_xyz = error[:3]
+        # The displacement IS the error (vector from coil to target)
+        error_xyz = disp[:3]
         error_total = np.linalg.norm(error_xyz)
+        
+        # Calculate head velocity (mm/s) from consecutive samples
+        head_velocity = 0.0
+        head_velocity_xyz = np.zeros(3)
+        if hasattr(self, '_prev_head_pose') and hasattr(self, '_prev_timestamp') and self._prev_head_pose is not None:
+            dt = timestamp - self._prev_timestamp
+            if dt > 0:
+                head_delta = head[:3] - self._prev_head_pose[:3]
+                head_velocity_xyz = head_delta / dt
+                head_velocity = np.linalg.norm(head_velocity_xyz)
+        
+        # Store for next frame
+        self._prev_head_pose = head.copy() if head_pose is not None else None
+        self._prev_timestamp = timestamp
         
         # Store data point
         data_point = {
             'timestamp': timestamp,
             'elapsed_time': elapsed_time,
-            'target_x': target_pos[0],
-            'target_y': target_pos[1],
-            'target_z': target_pos[2],
-            'target_rx': target_pos[3] if len(target_pos) > 3 else 0,
-            'target_ry': target_pos[4] if len(target_pos) > 4 else 0,
-            'target_rz': target_pos[5] if len(target_pos) > 5 else 0,
-            'coil_x': coil_pos[0],
-            'coil_y': coil_pos[1],
-            'coil_z': coil_pos[2],
-            'coil_rx': coil_pos[3] if len(coil_pos) > 3 else 0,
-            'coil_ry': coil_pos[4] if len(coil_pos) > 4 else 0,
-            'coil_rz': coil_pos[5] if len(coil_pos) > 5 else 0,
-            'error_x': error_xyz[0],
-            'error_y': error_xyz[1],
-            'error_z': error_xyz[2],
+            # Error = raw displacement (coil → target, before PID)
+            'error_x': disp[0],
+            'error_y': disp[1],
+            'error_z': disp[2],
+            'error_rx': disp[3] if len(disp) > 3 else 0,
+            'error_ry': disp[4] if len(disp) > 4 else 0,
+            'error_rz': disp[5] if len(disp) > 5 else 0,
             'error_total': error_total,
+            # Robot TCP pose (from encoders)
+            'coil_x': coil[0],
+            'coil_y': coil[1],
+            'coil_z': coil[2],
+            'coil_rx': coil[3] if len(coil) > 3 else 0,
+            'coil_ry': coil[4] if len(coil) > 4 else 0,
+            'coil_rz': coil[5] if len(coil) > 5 else 0,
+            # Head pose in robot space
+            'head_x': head[0],
+            'head_y': head[1],
+            'head_z': head[2],
+            'head_rx': head[3] if len(head) > 3 else 0,
+            'head_ry': head[4] if len(head) > 4 else 0,
+            'head_rz': head[5] if len(head) > 5 else 0,
+            # Head velocity (mm/s)
+            'head_vel_x': head_velocity_xyz[0],
+            'head_vel_y': head_velocity_xyz[1],
+            'head_vel_z': head_velocity_xyz[2],
+            'head_vel_total': head_velocity,
+            # Target from displacement method
+            'target_disp_x': tgt_disp[0],
+            'target_disp_y': tgt_disp[1],
+            'target_disp_z': tgt_disp[2],
+            'target_disp_rx': tgt_disp[3] if len(tgt_disp) > 3 else 0,
+            'target_disp_ry': tgt_disp[4] if len(tgt_disp) > 4 else 0,
+            'target_disp_rz': tgt_disp[5] if len(tgt_disp) > 5 else 0,
+            # Target from head tracker method
+            'target_head_x': tgt_head[0],
+            'target_head_y': tgt_head[1],
+            'target_head_z': tgt_head[2],
+            'target_head_rx': tgt_head[3] if len(tgt_head) > 3 else 0,
+            'target_head_ry': tgt_head[4] if len(tgt_head) > 4 else 0,
+            'target_head_rz': tgt_head[5] if len(tgt_head) > 5 else 0,
+            # Repulsion data
             'distance_coils': distance_coils if distance_coils is not None else -1,
             'repulsion_intensity': repulsion_intensity,
             'repulsion_zone': repulsion_zone
@@ -226,9 +280,12 @@ class ReproducibilityExperiment:
             writer.writeheader()
             writer.writerows(self.trial_data)
         
-        # Calculate statistics
+        # Calculate statistics (error = raw displacement before PID)
         errors = np.array([d['error_total'] for d in self.trial_data])
         errors_xyz = np.array([[d['error_x'], d['error_y'], d['error_z']] for d in self.trial_data])
+        
+        # Head velocity statistics
+        head_velocities = np.array([d['head_vel_total'] for d in self.trial_data])
         
         duration = self.trial_data[-1]['elapsed_time'] if self.trial_data else 0
         
@@ -252,13 +309,16 @@ class ReproducibilityExperiment:
                 'y': float(np.std(errors_xyz[:, 1])),
                 'z': float(np.std(errors_xyz[:, 2]))
             },
+            'mean_head_velocity': float(np.mean(head_velocities)),
+            'max_head_velocity': float(np.max(head_velocities)),
             'file': filename
         }
         
         self.trial_results.append(trial_result)
         
         print(f"📁 Data saved to: {filename}")
-        print(f"   Mean error: {trial_result['mean_error']:.3f}mm, Std: {trial_result['std_error']:.3f}mm")
+        print(f"   Error (displacement): mean={trial_result['mean_error']:.3f}mm, std={trial_result['std_error']:.3f}mm")
+        print(f"   Head velocity: mean={trial_result['mean_head_velocity']:.1f}mm/s, max={trial_result['max_head_velocity']:.1f}mm/s")
     
     def export_summary(self, base_filename=None):
         """
