@@ -71,6 +71,7 @@ class RobotControl:
         self.target_reached = False
 
         self.displacement_to_target = 6 * [0]
+        self.raw_displacement_to_target = 6 * [0]
         self.displacement_to_target_history = []
 
         self.force_feedback = None
@@ -409,6 +410,11 @@ class RobotControl:
         displacement[3] = -displacement[3]
 
         translation, angles_as_deg = self.on_coil_to_robot_alignment(displacement)
+        
+        # Store the raw displacement BEFORE PID — this is the actual positioning error
+        # (vector from coil to target in robot frame)
+        self.raw_displacement_to_target = list(translation) + list(angles_as_deg)
+        
         # Update PID controllers
         if self.config.get("movement_algorithm") == "directly_PID":
             stop_now = self.pid_group.update_translation(translation, self.force_feedback)
@@ -1156,20 +1162,28 @@ class RobotControl:
         
         # Reproducibility experiment data collection
         if self.reproducibility_exp.is_recording():
-            # Get current robot/coil position and target position (both dynamic)
+            # Robot pose (from robot encoders)
             coil_pos_robot = self.robot_pose_storage.GetRobotPose()
-            target_pos_robot = self.target_pose_in_robot_space_estimated_from_head_pose
             
-            # Get repulsion data
+            # Raw displacement = actual error (before PID processing)
+            # This is the vector from coil to target, as computed by neuronavigation
+            raw_displacement = self.raw_displacement_to_target
+            
+            # Target estimates for reference (two different computation methods)
+            target_from_displacement = self.target_pose_in_robot_space_estimated_from_displacement
+            target_from_head_pose = self.target_pose_in_robot_space_estimated_from_head_pose
+            
+            # Repulsion data
             distance_coils = self.repulsion_filed.distance_coils
             repulsion_intensity = self.repulsion_filed.last_brake_magnitude
             repulsion_zone = self.repulsion_filed.last_zone
             
-            # Update experiment with current positions and repulsion data
-            if coil_pos_robot is not None and target_pos_robot is not None:
+            if coil_pos_robot is not None:
                 trial_complete = self.reproducibility_exp.update(
                     coil_pos=coil_pos_robot,
-                    target_pos=target_pos_robot,
+                    raw_displacement=raw_displacement,
+                    target_from_displacement=target_from_displacement,
+                    target_from_head=target_from_head_pose,
                     timestamp=time.time(),
                     distance_coils=distance_coils,
                     repulsion_intensity=repulsion_intensity,
