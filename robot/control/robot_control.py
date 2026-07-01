@@ -167,7 +167,7 @@ class RobotControl:
             poses = data["poses"]
             visibilities = data["visibilities"]
             self.tracker.SetCoordinates(
-                np.vstack([poses[0], poses[1], poses[self.coil_index]]), visibilities
+                np.vstack([poses[0], poses[1], poses[self.coil_index]]), np.vstack([visibilities[0], visibilities[1], visibilities[self.coil_index]])
             )
 
     def on_set_coil_index(self, data):
