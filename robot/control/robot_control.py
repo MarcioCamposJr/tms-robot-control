@@ -63,6 +63,8 @@ class RobotControl:
         listener = keyboard.Listener(on_press=self.on_keypress)
         listener.start()
 
+        self.coil_index = 2 # Default coil index from tracker system
+
         self.target_set = False
         self.m_target_to_head = None
         self.target_reached = False
@@ -240,8 +242,11 @@ class RobotControl:
             poses = data["poses"]
             visibilities = data["visibilities"]
             self.tracker.SetCoordinates(
-                np.vstack([poses[0], poses[1], poses[2]]), visibilities
+                np.vstack([poses[0], poses[1], poses[self.coil_index]]), [visibilities[0], visibilities[1], visibilities[self.coil_index]]
             )
+
+    def on_set_coil_index(self, data):
+        self.coil_index = data["coil_idx"]
 
     def on_create_point(self, data):
         if self.create_calibration_point():
