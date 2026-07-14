@@ -161,7 +161,8 @@ PUB_MESSAGES = [
     "Neuronavigation to Robot: Update robot control pid factors",
     "Neuronavigation to Robot: Request config",
     "Dashboard to Robot: Request pid factors",
-    "Neuronavigation to Robot: Set coil index"
+    "Neuronavigation to Robot: Set coil index",
+    "Neuronavigation to Robot: Reset errors"
 ]
 
 FUNCTION_CONNECT_TO_ROBOT = 0
@@ -184,3 +185,4 @@ FUNCTION_UPDATE_PID = 16
 FUNCTION_REQUEST_CONFIG = 17
 FUNCTION_REQUEST_PID = 18
 FUNCTION_SET_COIL_INDEX = 19
+FUNCTION_CLEAN_ERRORS = 20
