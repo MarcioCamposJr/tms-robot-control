@@ -13,7 +13,7 @@ sys.path.insert(0, root_dir)
 
 from robot.robots.universal_robot.universal_robot import UniversalRobot  # noqa: E402
 
-ip = "169.254.128.103"
+ip = "192.168.200.223"
 
 robot = UniversalRobot(
     ip=ip,
@@ -28,8 +28,8 @@ for movement_direction in [-1, 1]:
     robot.initialize()
 
     # Get the current pose of the robot.
-    current_pose = robot.get_pose()
-
+    status, current_pose = robot.get_pose()
+    # print(robot.read_force_sensor())
     print("")
     print(
         "Pose before movement: X = {:.3f}, Y = {:.3f}, Z = {:.3f}, Rx = {:.2f}, Ry = {:.2f}, Rz = {:.2f}".format(

@@ -1370,3 +1370,8 @@ class RobotControl:
         self.remote_control.send_message(
                 "Robot to Dashboard: PID factors",
                 {"pid_factors": self.pid_group.get_pid_factors()})
+
+    def on_clean_errors(self, data):
+        if self.robot:
+            self.on_set_objective({"objective": RobotObjective.NONE.value})
+            self.robot.clean_errors()

@@ -112,8 +112,8 @@ class UniversalRobot(Robot):
         return self.state_connection.is_error_state()
 
     def read_force_sensor(self):
-        raise NotImplementedError
-
+        success, force = self.state_connection.get_force()
+        return success, force
     # Movement
     def move_linear(self, target, speed_ratio):
         # TODO: This is currently incorrect; target is defined as [x, y, z, rx, ry, rz] where
@@ -193,4 +193,7 @@ class UniversalRobot(Robot):
         pass
 
     def disable_free_drive(self):
+        pass
+
+    def clean_errors(self):
         pass

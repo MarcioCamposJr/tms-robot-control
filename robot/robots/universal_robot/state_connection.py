@@ -239,6 +239,54 @@ class StateConnection(Thread):
         rz = self.state["CartesianInfo"]["Rz"][0]
         return rz
 
+    @ property
+    def Fx(self):
+        if self.state is None:
+            return None
+
+        fx = self.state["ForceModeData"]["Fx"][0]
+        return fx
+
+    @ property
+    def Fy(self):
+        if self.state is None:
+            return None
+
+        fy = self.state["ForceModeData"]["Fy"][0]
+        return fy
+
+    @ property
+    def Fz(self):
+        if self.state is None:
+            return None
+
+        fz = self.state["ForceModeData"]["Fz"][0]
+        return fz
+
+    @ property
+    def Frx(self):
+        if self.state is None:
+            return None
+
+        frx = self.state["ForceModeData"]["Frx"][0]
+        return frx
+
+    @ property
+    def Fry(self):
+        if self.state is None:
+            return None
+
+        fry = self.state["ForceModeData"]["Fry"][0]
+        return fry
+
+    @ property
+    def Frz(self):
+        if self.state is None:
+            return None
+
+        frz = self.state["ForceModeData"]["Frz"][0]
+        return frz
+
     def is_moving(self):
         return (
             self.state["RobotMode"]["isProgramRunning"][0]
@@ -255,6 +303,12 @@ class StateConnection(Thread):
 
         return is_emergency_stopped or is_protective_stopped
 
+    def get_force(self):
+        if self.state is None:
+            return False, None
+
+        return True, [self.Fx, self.Fy, self.Fz, self.Frx, self.Fry, self.Frz]
+
     def get_pose(self):
         if self.state is None:
             return False, None
@@ -265,8 +319,10 @@ class StateConnection(Thread):
         if self.state is None:
             return "No state message received yet"
 
-        return "X: {:.0f}, Y: {:.0f}, Z: {:.0f}, Rx: {:.1f}, Ry: {:.1f}, Rz: {:.1f}".format(
-            self.X, self.Y, self.Z, self.Rx, self.Ry, self.Rz
+        return ("X: {:.0f}, Y: {:.0f}, Z: {:.0f}, Rx: {:.1f}, Ry: {:.1f}, Rz: {:.1f}, "
+                "Fx: {:.0f}, Fy: {:.0f}, Fz: {:.0f}, Frx: {:.1f}, Fry: {:.1f}, Frz: {:.1f}").format(
+                self.X, self.Y, self.Z, self.Rx, self.Ry, self.Rz,
+                self.Fx, self.Fy, self.Fz, self.Frx, self.Fry, self.Frz
         )
 
     # Unused for now; can be used to find out the order of subpackages in the state message.
