@@ -281,6 +281,7 @@ def main(connection=None):
                             const.FUNCTION_REQUEST_CONFIG: robot_control.send_config,
                             const.FUNCTION_REQUEST_PID: robot_control.send_pid_factors,
                             const.FUNCTION_SET_COIL_INDEX: robot_control.on_set_coil_index,
+                            const.FUNCTION_CLEAN_ERRORS: robot_control.on_clean_errors,
                         }
                         get_function[const.PUB_MESSAGES.index(topic[i])](buf[i]["data"])
 
