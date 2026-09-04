@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 
 from robot.control.collision_avoidance import (
+    CollisionAvoidanceController,
     CollisionStage,
     RepulsionConfig,
     RepulsionField,
@@ -100,6 +101,64 @@ class RepulsionFieldTests(unittest.TestCase):
 
         self.assertTrue(result.stop_requested)
         np.testing.assert_array_equal(result.offset, np.zeros(3))
+
+
+class CollisionAvoidanceControllerTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 10.0
+        self.config = RepulsionConfig(
+            strength=25,
+            safety_margin=22,
+            working_distance=12,
+            stop_distance=1,
+            measurement_timeout=0.25,
+            stop_release_distance=2,
+        )
+        self.controller = CollisionAvoidanceController(
+            self.config, clock=lambda: self.now
+        )
+
+    def test_does_not_stop_before_first_measurement(self):
+        command = self.controller.compute_command(0.01)
+
+        self.assertEqual(command.stage, CollisionStage.UNAVAILABLE)
+        self.assertFalse(command.stop_requested)
+
+    def test_requests_stop_when_measurement_becomes_stale(self):
+        self.controller.update_measurement(10, [1, 0, 0])
+        self.now += self.config.measurement_timeout + 0.01
+
+        command = self.controller.compute_command(0.01)
+
+        self.assertEqual(command.stage, CollisionStage.UNAVAILABLE)
+        self.assertTrue(command.stop_requested)
+
+    def test_emergency_stop_remains_latched(self):
+        self.controller.update_measurement(1, [0, 0, 0])
+        self.controller.update_measurement(10, [1, 0, 0])
+
+        command = self.controller.compute_command(0.01)
+
+        self.assertEqual(command.stage, CollisionStage.STOP)
+        self.assertTrue(command.stop_requested)
+
+    def test_releases_stop_only_beyond_release_distance(self):
+        self.controller.update_measurement(1, [0, 0, 0])
+        self.controller.update_measurement(2, [1, 0, 0])
+        self.assertFalse(self.controller.reset_stop())
+
+        self.controller.update_measurement(4, [1, 0, 0])
+        self.assertTrue(self.controller.reset_stop())
+        self.assertFalse(self.controller.compute_command(0.01).stop_requested)
+
+    def test_clear_stage_removes_smoothed_offset(self):
+        self.controller.update_measurement(10, [1, 0, 0])
+        self.assertGreater(np.linalg.norm(self.controller.compute_command(0.01).offset), 0)
+
+        self.controller.update_measurement(30, [1, 0, 0])
+        command = self.controller.compute_command(0.01)
+
+        np.testing.assert_array_equal(command.offset, np.zeros(3))
 
 
 if __name__ == "__main__":
