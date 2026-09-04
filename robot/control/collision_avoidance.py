@@ -1,6 +1,6 @@
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import Enum
 
 import numpy as np
@@ -52,6 +52,29 @@ class RepulsionConfig:
             raise ValueError(
                 "Expected stop_distance < working_distance < safety_margin"
             )
+
+    def with_updates(self, updates) -> "RepulsionConfig":
+        if not isinstance(updates, dict) or not updates:
+            raise ValueError("Repulsion configuration update must be a non-empty dict")
+
+        known_fields = set(asdict(self))
+        unknown_fields = set(updates) - known_fields
+        if unknown_fields:
+            names = ", ".join(sorted(unknown_fields))
+            raise ValueError(f"Unknown repulsion configuration fields: {names}")
+
+        converted_updates = {}
+        for name, value in updates.items():
+            if isinstance(value, bool):
+                raise ValueError(f"Repulsion configuration field {name} must be numeric")
+            try:
+                converted_updates[name] = float(value)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Repulsion configuration field {name} must be numeric"
+                ) from error
+
+        return replace(self, **converted_updates)
 
 
 @dataclass(frozen=True)
@@ -189,6 +212,12 @@ class CollisionAvoidanceController:
             timestamp=timestamp,
         )
         return result.stage
+
+    def update_config(self, updates):
+        new_config = self.config.with_updates(updates)
+        self.config = new_config
+        self.field = RepulsionField(new_config)
+        self.reset_output()
 
     def compute_command(self, delta_time: float) -> RepulsionCommand:
         if self._measurement is None:

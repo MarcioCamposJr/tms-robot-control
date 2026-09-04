@@ -36,6 +36,21 @@ class RepulsionConfigTests(unittest.TestCase):
                 stop_distance=1,
             )
 
+    def test_applies_valid_updates_without_changing_original(self):
+        config = RepulsionConfig(25, 22, 12, 5)
+
+        updated = config.with_updates({"strength": "30", "smoothing": 0.5})
+
+        self.assertEqual(updated.strength, 30)
+        self.assertEqual(updated.smoothing, 0.5)
+        self.assertEqual(config.strength, 25)
+
+    def test_rejects_unknown_update_fields(self):
+        config = RepulsionConfig(25, 22, 12, 5)
+
+        with self.assertRaises(ValueError):
+            config.with_updates({"unknown": 1})
+
 
 class RepulsionFieldTests(unittest.TestCase):
     def setUp(self):
@@ -182,6 +197,20 @@ class CollisionAvoidanceControllerTests(unittest.TestCase):
         command = self.controller.compute_command(0.01)
 
         np.testing.assert_array_equal(command.offset, np.zeros(3))
+
+    def test_invalid_config_update_preserves_current_config(self):
+        original_config = self.controller.config
+
+        with self.assertRaises(ValueError):
+            self.controller.update_config({"working_distance": 30})
+
+        self.assertIs(self.controller.config, original_config)
+
+    def test_valid_config_update_is_atomic(self):
+        self.controller.update_config({"strength": 30, "smoothing": 0.5})
+
+        self.assertEqual(self.controller.config.strength, 30)
+        self.assertEqual(self.controller.config.smoothing, 0.5)
 
 
 if __name__ == "__main__":
