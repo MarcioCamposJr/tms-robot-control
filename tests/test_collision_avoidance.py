@@ -1,6 +1,8 @@
 import math
 import unittest
 
+import numpy as np
+
 from robot.control.collision_avoidance import (
     CollisionStage,
     RepulsionConfig,
@@ -74,6 +76,30 @@ class RepulsionFieldTests(unittest.TestCase):
         for distance in (-1, math.nan, math.inf):
             with self.subTest(distance=distance), self.assertRaises(ValueError):
                 self.field.compute(distance)
+
+    def test_normalizes_repulsion_direction(self):
+        unit_direction = self.field.compute_offset(10, [1, 0, 0], 0.01)
+        scaled_direction = self.field.compute_offset(10, [100, 0, 0], 0.01)
+
+        np.testing.assert_allclose(unit_direction.offset, scaled_direction.offset)
+
+    def test_rejects_invalid_repulsion_direction_in_active_zone(self):
+        invalid_directions = ([0, 0, 0], [1, 0], [1, math.nan, 0])
+
+        for direction in invalid_directions:
+            with self.subTest(direction=direction), self.assertRaises(ValueError):
+                self.field.compute_offset(10, direction, 0.01)
+
+    def test_limits_delta_time_and_offset(self):
+        delayed = self.field.compute_offset(2, [1, 0, 0], 10)
+
+        self.assertLessEqual(np.linalg.norm(delayed.offset), self.config.max_offset)
+
+    def test_stop_stage_requests_stop_without_offset(self):
+        result = self.field.compute_offset(1, [0, 0, 0], 0.01)
+
+        self.assertTrue(result.stop_requested)
+        np.testing.assert_array_equal(result.offset, np.zeros(3))
 
 
 if __name__ == "__main__":
