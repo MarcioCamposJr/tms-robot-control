@@ -15,6 +15,11 @@ import robot.transformations as tr
 from robot.control.algorithms.directly_PID import DirectlyPIDAlgorithm
 from robot.control.algorithms.directly_upward import DirectlyUpwardAlgorithm
 from robot.control.algorithms.radially_outward import RadiallyOutwardAlgorithm
+from robot.control.collision_avoidance import (
+    CollisionAvoidanceController,
+    CollisionStage,
+    RepulsionConfig,
+)
 from robot.control.color import Color
 from robot.control.PID import PIDControllerGroup
 from robot.control.robot_state_controller import RobotState, RobotStateController
@@ -89,6 +94,12 @@ class RobotControl:
             # Force sensor is safety-only; PID uses pressure feedback.
             use_force=False, use_pressure=self.pressure_pid_active, robot_type=self.config["robot"],
         )
+        self.collision_avoidance = CollisionAvoidanceController(
+            RepulsionConfig(**const.COLLISION_AVOIDANCE_CONFIG)
+        )
+        self._last_collision_command_time = time.monotonic()
+        self._collision_safety_active = False
+        self._collision_warning = None
 
         self.force_sensor = None
         self.pressure_sensor = None
@@ -496,13 +507,20 @@ class RobotControl:
         translation, angles_as_deg = self.on_coil_to_robot_alignment(displacement)
         # Update PID controllers
         if self.config.get("movement_algorithm") == "directly_PID":
+            collision_command = self._compute_collision_command()
+            if collision_command.stop_requested:
+                self._activate_collision_stop(self._collision_stop_reason())
+                return
+
             pressure_feedback = (
                 self.feedback_pressure_sensor if self.pressure_pid_active else None
             )
             self.pid_group.update_translation(translation, pressure_feedback)
             self.pid_group.update_rotation(angles_as_deg)
             self.z_offset = translation[2]
-            translation, angles_as_deg = self.pid_group.get_outputs()
+            translation, angles_as_deg = self.pid_group.get_outputs(
+                collision_command.offset
+            )
 
         self.displacement_to_target = list(translation) + list(angles_as_deg)
 
@@ -1306,6 +1324,11 @@ class RobotControl:
 
         warning = None
 
+        collision_warning = self._handle_collision_safety()
+        if collision_warning:
+            self.update_navigation_variables(collision_warning)
+            return True
+
         # Calibrate force baseline
         self._calibrate_force_sensor_before_motion()
         # Force sensor acts only as a safety feature: stop and move up if any axis exceeds threshold.
@@ -1397,3 +1420,85 @@ class RobotControl:
         if self.robot:
             self.on_set_objective({"objective": RobotObjective.NONE.value})
             self.robot.clean_errors()
+
+    def on_update_coil_distance(self, data):
+        try:
+            distance = float(data["distance"])
+            distance_result = self.collision_avoidance.field.compute(distance)
+            if distance_result.stage is CollisionStage.STOP:
+                direction = data.get("brake_vector", [0, 0, 0])
+            else:
+                direction = self._collision_direction_in_tool_space(
+                    data["brake_vector"]
+                )
+            stage = self.collision_avoidance.update_measurement(distance, direction)
+        except (KeyError, TypeError, ValueError) as error:
+            self.collision_avoidance.latch_stop()
+            self._activate_collision_stop(
+                f"Invalid coil collision measurement: {error}"
+            )
+            return False
+
+        if stage is CollisionStage.STOP:
+            self._activate_collision_stop(
+                f"Coil collision stop at {distance:.2f} mm"
+            )
+        elif not self.collision_avoidance.stop_latched:
+            self._collision_safety_active = False
+            self._collision_warning = None
+
+        return True
+
+    def on_reset_collision_stop(self, data):
+        if not self.collision_avoidance.reset_stop():
+            print("Collision stop cannot be reset without a fresh, safe measurement")
+            return False
+
+        self._collision_safety_active = False
+        self._collision_warning = None
+        print("Collision stop reset")
+        return True
+
+    def _collision_direction_in_tool_space(self, direction):
+        direction = self.collision_avoidance.field.normalize_direction(direction)
+        robot_pose = self.robot_pose_storage.GetRobotPose()
+        if robot_pose is None or len(robot_pose) < 6:
+            raise ValueError("Robot pose is unavailable")
+
+        robot_matrix = robot_process.coordinates_to_transformation_matrix(
+            position=robot_pose[:3],
+            orientation=robot_pose[3:],
+            axes="sxyz",
+        )
+        return robot_matrix[:3, :3].T @ direction
+
+    def _compute_collision_command(self):
+        now = time.monotonic()
+        delta_time = now - self._last_collision_command_time
+        self._last_collision_command_time = now
+        return self.collision_avoidance.compute_command(delta_time)
+
+    def _collision_stop_reason(self):
+        if self.collision_avoidance.stop_latched:
+            return "Coil collision emergency stop is latched"
+        return "Coil collision measurements are stale"
+
+    def _activate_collision_stop(self, reason):
+        self._collision_warning = reason
+        if self._collision_safety_active:
+            return
+
+        self._collision_safety_active = True
+        print(reason)
+        if self.robot is not None:
+            self.stop_robot()
+
+    def _handle_collision_safety(self):
+        if self.collision_avoidance.stop_requested():
+            self._activate_collision_stop(self._collision_stop_reason())
+            return self._collision_warning
+
+        if self._collision_safety_active:
+            self._collision_safety_active = False
+            self._collision_warning = None
+        return None
