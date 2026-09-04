@@ -317,6 +317,7 @@ def main(connection=None):
                             const.FUNCTION_CLEAN_ERRORS: robot_control.on_clean_errors,
                             const.FUNCTION_UPDATE_COIL_DISTANCE: robot_control.on_update_coil_distance,
                             const.FUNCTION_RESET_COLLISION_STOP: robot_control.on_reset_collision_stop,
+                            const.FUNCTION_UPDATE_COLLISION_CONFIG: robot_control.on_update_collision_config,
                         }
                         get_function[const.PUB_MESSAGES.index(topic[i])](msg_data)
 

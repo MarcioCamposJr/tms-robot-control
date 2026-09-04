@@ -1459,6 +1459,19 @@ class RobotControl:
         print("Collision stop reset")
         return True
 
+    def on_update_collision_config(self, data):
+        try:
+            self.collision_avoidance.update_config(data["config_updates"])
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"Invalid collision avoidance configuration: {error}")
+            return False
+
+        print(
+            "Collision avoidance configuration updated: "
+            f"{self.collision_avoidance.config}"
+        )
+        return True
+
     def _collision_direction_in_tool_space(self, direction):
         direction = self.collision_avoidance.field.normalize_direction(direction)
         robot_pose = self.robot_pose_storage.GetRobotPose()

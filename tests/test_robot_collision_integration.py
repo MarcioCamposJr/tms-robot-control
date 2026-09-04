@@ -50,6 +50,24 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.assertFalse(success)
         self.assertTrue(self.control.collision_avoidance.stop_latched)
 
+    def test_updates_collision_config(self):
+        success = self.control.on_update_collision_config(
+            {"config_updates": {"strength": 30}}
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(self.control.collision_avoidance.config.strength, 30)
+
+    def test_rejects_invalid_collision_config(self):
+        original_config = self.control.collision_avoidance.config
+
+        success = self.control.on_update_collision_config(
+            {"config_updates": {"working_distance": 100}}
+        )
+
+        self.assertFalse(success)
+        self.assertIs(self.control.collision_avoidance.config, original_config)
+
 
 if __name__ == "__main__":
     unittest.main()

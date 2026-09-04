@@ -13,6 +13,10 @@ class CollisionProtocolTests(unittest.TestCase):
             const.PUB_MESSAGES[const.FUNCTION_RESET_COLLISION_STOP],
             "Neuronavigation to Robot: Reset collision error",
         )
+        self.assertEqual(
+            const.PUB_MESSAGES[const.FUNCTION_UPDATE_COLLISION_CONFIG],
+            "Neuronavigation to Robot: Update repulsion field config",
+        )
 
 
 if __name__ == "__main__":
