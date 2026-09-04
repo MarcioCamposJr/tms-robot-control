@@ -155,6 +155,22 @@ class CollisionAvoidanceController:
     def has_measurement(self) -> bool:
         return self._measurement is not None
 
+    @property
+    def stop_latched(self) -> bool:
+        return self._stop_latched
+
+    def measurement_is_stale(self) -> bool:
+        if self._measurement is None:
+            return False
+        return self._measurement_age() > self.config.measurement_timeout
+
+    def stop_requested(self) -> bool:
+        return self._stop_latched or self.measurement_is_stale()
+
+    def latch_stop(self):
+        self._stop_latched = True
+        self.reset_output()
+
     def update_measurement(self, distance: float, direction) -> CollisionStage:
         result = self.field.compute(distance)
         timestamp = self._clock()
@@ -178,10 +194,7 @@ class CollisionAvoidanceController:
         if self._measurement is None:
             return self._empty_command(CollisionStage.UNAVAILABLE, False)
 
-        age = self._clock() - self._measurement.timestamp
-        if age < 0:
-            raise ValueError("Monotonic clock moved backwards")
-        if age > self.config.measurement_timeout:
+        if self.measurement_is_stale():
             self.reset_output()
             return self._empty_command(CollisionStage.UNAVAILABLE, True)
         if self._stop_latched:
@@ -224,6 +237,12 @@ class CollisionAvoidanceController:
 
     def reset_output(self):
         self._smoothed_offset.fill(0)
+
+    def _measurement_age(self) -> float:
+        age = self._clock() - self._measurement.timestamp
+        if age < 0:
+            raise ValueError("Monotonic clock moved backwards")
+        return age
 
     @staticmethod
     def _empty_command(stage, stop_requested):

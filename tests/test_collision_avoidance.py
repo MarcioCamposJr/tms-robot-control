@@ -138,6 +138,8 @@ class CollisionAvoidanceControllerTests(unittest.TestCase):
 
         self.assertEqual(command.stage, CollisionStage.UNAVAILABLE)
         self.assertTrue(command.stop_requested)
+        self.assertTrue(self.controller.measurement_is_stale())
+        self.assertTrue(self.controller.stop_requested())
 
     def test_emergency_stop_remains_latched(self):
         self.controller.update_measurement(1, [0, 0, 0])
@@ -147,6 +149,14 @@ class CollisionAvoidanceControllerTests(unittest.TestCase):
 
         self.assertEqual(command.stage, CollisionStage.STOP)
         self.assertTrue(command.stop_requested)
+        self.assertTrue(self.controller.stop_latched)
+
+    def test_can_latch_stop_after_invalid_external_input(self):
+        self.controller.update_measurement(10, [1, 0, 0])
+
+        self.controller.latch_stop()
+
+        self.assertTrue(self.controller.stop_requested())
 
     def test_releases_stop_only_beyond_release_distance(self):
         self.controller.update_measurement(1, [0, 0, 0])
