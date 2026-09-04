@@ -222,7 +222,7 @@ class CollisionAvoidanceController:
         )
 
     def reset_stop(self) -> bool:
-        if self._measurement is None:
+        if self._measurement is None or self.measurement_is_stale():
             return False
 
         release_distance = (

@@ -167,6 +167,13 @@ class CollisionAvoidanceControllerTests(unittest.TestCase):
         self.assertTrue(self.controller.reset_stop())
         self.assertFalse(self.controller.compute_command(0.01).stop_requested)
 
+    def test_does_not_release_stop_from_stale_measurement(self):
+        self.controller.update_measurement(1, [0, 0, 0])
+        self.controller.update_measurement(4, [1, 0, 0])
+        self.now += self.config.measurement_timeout + 0.01
+
+        self.assertFalse(self.controller.reset_stop())
+
     def test_clear_stage_removes_smoothed_offset(self):
         self.controller.update_measurement(10, [1, 0, 0])
         self.assertGreater(np.linalg.norm(self.controller.compute_command(0.01).offset), 0)
