@@ -315,6 +315,8 @@ def main(connection=None):
                             const.FUNCTION_REQUEST_PID: robot_control.send_pid_factors,
                             const.FUNCTION_SET_COIL_INDEX: robot_control.on_set_coil_index,
                             const.FUNCTION_CLEAN_ERRORS: robot_control.on_clean_errors,
+                            const.FUNCTION_UPDATE_COIL_DISTANCE: robot_control.on_update_coil_distance,
+                            const.FUNCTION_RESET_COLLISION_STOP: robot_control.on_reset_collision_stop,
                         }
                         get_function[const.PUB_MESSAGES.index(topic[i])](msg_data)
 
