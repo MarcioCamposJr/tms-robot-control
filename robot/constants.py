@@ -140,6 +140,21 @@ ROBOT_CONFIG = {
     },
 }
 
+# Coil-to-coil collision avoidance. Distances and offsets are expressed in mm.
+# These initial values preserve the shape of the prototype curve, while using a
+# practical stop threshold that must be validated on the physical setup.
+COLLISION_AVOIDANCE_CONFIG = {
+    "strength": 25.0,
+    "safety_margin": 22.0,
+    "working_distance": 12.0,
+    "stop_distance": 5.0,
+    "max_offset": 2.0,
+    "max_delta_time": 0.05,
+    "smoothing": 0.2,
+    "measurement_timeout": 0.25,
+    "stop_release_distance": 2.0,
+}
+
 # Publisher messages from invesalius to any robot
 # It's important these message to be in the PUB_MESSAGES list too
 PUB_MESSAGES_WL = [

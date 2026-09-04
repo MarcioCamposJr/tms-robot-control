@@ -3,6 +3,7 @@ import unittest
 
 import numpy as np
 
+from robot.constants import COLLISION_AVOIDANCE_CONFIG
 from robot.control.collision_avoidance import (
     CollisionAvoidanceController,
     CollisionStage,
@@ -12,6 +13,11 @@ from robot.control.collision_avoidance import (
 
 
 class RepulsionConfigTests(unittest.TestCase):
+    def test_application_defaults_are_valid(self):
+        config = RepulsionConfig(**COLLISION_AVOIDANCE_CONFIG)
+
+        self.assertGreater(config.stop_distance, 0)
+
     def test_rejects_invalid_distance_order(self):
         with self.assertRaises(ValueError):
             RepulsionConfig(
