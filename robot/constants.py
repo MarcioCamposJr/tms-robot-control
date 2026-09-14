@@ -187,6 +187,7 @@ PUB_MESSAGES = [
     "Neuronavigation to Robot: Dynamically update distance coils",
     "Neuronavigation to Robot: Reset collision error",
     "Neuronavigation to Robot: Update repulsion field config",
+    "Neuronavigation to Robot: Set coil collision registrations",
 ]
 
 FUNCTION_CONNECT_TO_ROBOT = 0
@@ -213,3 +214,4 @@ FUNCTION_CLEAN_ERRORS = 20
 FUNCTION_UPDATE_COIL_DISTANCE = 21
 FUNCTION_RESET_COLLISION_STOP = 22
 FUNCTION_UPDATE_COLLISION_CONFIG = 23
+FUNCTION_SET_COLLISION_REGISTRATIONS = 24

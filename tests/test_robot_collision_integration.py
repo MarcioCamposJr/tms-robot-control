@@ -27,6 +27,7 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.control.robot = None
         self.control._collision_safety_active = False
         self.control._collision_warning = None
+        self.control.coil_collision_calculator = None
 
     def test_transforms_direction_from_base_to_tool_coordinates(self):
         self.control.robot_pose_storage = DummyRobotPoseStorage(
@@ -67,6 +68,45 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
 
         self.assertFalse(success)
         self.assertIs(self.control.collision_avoidance.config, original_config)
+
+    def test_sets_two_collision_registrations_for_own_coil(self):
+        registrations = {
+            "robotized": self._make_registration(2),
+            "other": self._make_registration(3),
+        }
+
+        success = self.control.on_set_collision_registrations(
+            {"coil_idx": 2, "registrations": registrations}
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(self.control.coil_index, 2)
+        self.assertEqual(self.control.coil_collision_calculator.object_ids, (2, 3))
+
+    def test_rejects_registrations_without_own_coil_atomically(self):
+        original_calculator = object()
+        self.control.coil_collision_calculator = original_calculator
+
+        success = self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 4,
+                "registrations": {
+                    "first": self._make_registration(2),
+                    "second": self._make_registration(3),
+                },
+            }
+        )
+
+        self.assertFalse(success)
+        self.assertIs(self.control.coil_collision_calculator, original_calculator)
+
+    @staticmethod
+    def _make_registration(object_id):
+        return {
+            "obj_id": object_id,
+            "fiducials": [[-1, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 0]],
+            "orientations": [[0, 0, 0]] * 4,
+        }
 
 
 if __name__ == "__main__":

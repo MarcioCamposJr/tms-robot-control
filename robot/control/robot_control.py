@@ -15,6 +15,7 @@ import robot.transformations as tr
 from robot.control.algorithms.directly_PID import DirectlyPIDAlgorithm
 from robot.control.algorithms.directly_upward import DirectlyUpwardAlgorithm
 from robot.control.algorithms.radially_outward import RadiallyOutwardAlgorithm
+from robot.control.coil_geometry import CoilCollisionCalculator
 from robot.control.collision_avoidance import (
     CollisionAvoidanceController,
     CollisionStage,
@@ -97,6 +98,7 @@ class RobotControl:
         self.collision_avoidance = CollisionAvoidanceController(
             RepulsionConfig(**const.COLLISION_AVOIDANCE_CONFIG)
         )
+        self.coil_collision_calculator = None
         self._last_collision_command_time = time.monotonic()
         self._collision_safety_active = False
         self._collision_warning = None
@@ -1469,6 +1471,31 @@ class RobotControl:
         print(
             "Collision avoidance configuration updated: "
             f"{self.collision_avoidance.config}"
+        )
+        return True
+
+    def on_set_collision_registrations(self, data):
+        try:
+            coil_index = data["coil_idx"]
+            if (
+                not isinstance(coil_index, int)
+                or isinstance(coil_index, bool)
+                or coil_index < 0
+            ):
+                raise ValueError("Own coil tracker object ID must be a non-negative integer")
+
+            calculator = CoilCollisionCalculator(data["registrations"])
+            if coil_index not in calculator.object_ids:
+                raise ValueError("Own coil is not present in the collision registrations")
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"Invalid coil collision registrations: {error}")
+            return False
+
+        self.coil_index = coil_index
+        self.coil_collision_calculator = calculator
+        print(
+            "Coil collision registrations set for tracker objects "
+            f"{calculator.object_ids}"
         )
         return True
 

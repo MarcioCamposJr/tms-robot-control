@@ -17,6 +17,10 @@ class CollisionProtocolTests(unittest.TestCase):
             const.PUB_MESSAGES[const.FUNCTION_UPDATE_COLLISION_CONFIG],
             "Neuronavigation to Robot: Update repulsion field config",
         )
+        self.assertEqual(
+            const.PUB_MESSAGES[const.FUNCTION_SET_COLLISION_REGISTRATIONS],
+            "Neuronavigation to Robot: Set coil collision registrations",
+        )
 
 
 if __name__ == "__main__":
