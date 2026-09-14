@@ -22,6 +22,7 @@ from robot.control.coil_geometry import (
     direction_from_tracker_to_robot,
 )
 from robot.control.collision_avoidance import (
+    ClosingSpeedEstimator,
     CollisionAvoidanceController,
     CollisionStage,
     RepulsionConfig,
@@ -103,6 +104,7 @@ class RobotControl:
         self.collision_avoidance = CollisionAvoidanceController(
             RepulsionConfig(**const.COLLISION_AVOIDANCE_CONFIG)
         )
+        self._reset_collision_speed_estimator()
         self.coil_collision_calculator = None
         self._last_collision_command_time = time.monotonic()
         self._collision_safety_active = False
@@ -1438,10 +1440,16 @@ class RobotControl:
             if any(not bool(visibilities[index]) for index in calculator.object_ids):
                 # Do not refresh the measurement. The collision watchdog stops
                 # the robot if tracking does not recover within its timeout.
+                self.collision_speed_estimator.reset()
                 return False
 
             measurement = calculator.measure(poses)
-            stage = self.collision_avoidance.field.compute(measurement.distance).stage
+            closing_speed = self.collision_speed_estimator.update(
+                measurement.box_a.center, measurement.box_b.center
+            )
+            stage = self.collision_avoidance.field.compute(
+                measurement.distance, closing_speed
+            ).stage
             direction = measurement.direction_for(self.coil_index)
             if stage not in (CollisionStage.STOP, CollisionStage.CLEAR):
                 direction = direction_from_tracker_to_robot(
@@ -1458,14 +1466,19 @@ class RobotControl:
                 )
                 direction = self._collision_direction_in_tool_space(direction)
         except (IndexError, TypeError, ValueError, RuntimeError) as error:
+            self.collision_speed_estimator.reset()
             self._reject_collision_measurement(error)
             return False
 
-        self._store_collision_measurement(measurement.distance, direction)
+        self._store_collision_measurement(
+            measurement.distance, direction, closing_speed
+        )
         return True
 
-    def _store_collision_measurement(self, distance, direction):
-        stage = self.collision_avoidance.update_measurement(distance, direction)
+    def _store_collision_measurement(self, distance, direction, closing_speed=0.0):
+        stage = self.collision_avoidance.update_measurement(
+            distance, direction, closing_speed
+        )
         if stage is CollisionStage.STOP:
             self._activate_collision_stop(
                 f"Coil collision stop at {distance:.2f} mm"
@@ -1495,6 +1508,7 @@ class RobotControl:
             print(f"Invalid collision avoidance configuration: {error}")
             return False
 
+        self._reset_collision_speed_estimator()
         print(
             "Collision avoidance configuration updated: "
             f"{self.collision_avoidance.config}"
@@ -1522,11 +1536,19 @@ class RobotControl:
 
         self.coil_index = coil_index
         self.coil_collision_calculator = calculator
+        self.collision_speed_estimator.reset()
         print(
             "Coil collision registrations set for tracker objects "
             f"{calculator.object_ids}"
         )
         return True
+
+    def _reset_collision_speed_estimator(self):
+        config = self.collision_avoidance.config
+        self.collision_speed_estimator = ClosingSpeedEstimator(
+            smoothing=config.velocity_smoothing,
+            max_closing_speed=config.max_closing_speed,
+        )
 
     def _collision_direction_in_tool_space(self, direction):
         direction = self.collision_avoidance.field.normalize_direction(direction)

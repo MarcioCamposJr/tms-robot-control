@@ -5,6 +5,7 @@ import numpy as np
 from robot.constants import COLLISION_AVOIDANCE_CONFIG
 from robot.control import coordinates
 from robot.control.collision_avoidance import (
+    ClosingSpeedEstimator,
     CollisionAvoidanceController,
     RepulsionConfig,
 )
@@ -25,6 +26,7 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.control.collision_avoidance = CollisionAvoidanceController(
             RepulsionConfig(**COLLISION_AVOIDANCE_CONFIG)
         )
+        self.control._reset_collision_speed_estimator()
         self.control.robot = None
         self.control._collision_safety_active = False
         self.control._collision_warning = None
@@ -157,6 +159,49 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         )
 
         self.assertFalse(self.control.collision_avoidance.has_measurement)
+
+    def test_closing_speed_activates_repulsion_before_static_margin(self):
+        now = 10.0
+        self.control.collision_speed_estimator = ClosingSpeedEstimator(
+            smoothing=0.0,
+            max_closing_speed=300,
+            clock=lambda: now,
+        )
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "manual": self._make_registration(3),
+                },
+            }
+        )
+        # Registration resets the estimator, so install the deterministic clock
+        # after setting it.
+        self.control.collision_speed_estimator = ClosingSpeedEstimator(
+            smoothing=0.0,
+            max_closing_speed=300,
+            clock=lambda: now,
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 40
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        now += 0.1
+        poses[3, 0] = 35
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        measurement = self.control.collision_avoidance._measurement
+        self.assertAlmostEqual(measurement.distance, 30)
+        self.assertAlmostEqual(measurement.closing_speed, 50)
+        self.assertEqual(
+            self.control.collision_avoidance.compute_command(0.01).stage.value,
+            "approach",
+        )
 
     def test_local_overlap_latches_collision_stop(self):
         self.control.on_set_collision_registrations(
