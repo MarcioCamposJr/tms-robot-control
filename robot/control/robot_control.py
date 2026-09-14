@@ -17,6 +17,8 @@ from robot.control.algorithms.directly_upward import DirectlyUpwardAlgorithm
 from robot.control.algorithms.radially_outward import RadiallyOutwardAlgorithm
 from robot.control.coil_geometry import (
     CoilCollisionCalculator,
+    box_from_tracker_to_robot,
+    constrain_direction_away_from_head,
     direction_from_tracker_to_robot,
 )
 from robot.control.collision_avoidance import (
@@ -1444,6 +1446,15 @@ class RobotControl:
             if stage not in (CollisionStage.STOP, CollisionStage.CLEAR):
                 direction = direction_from_tracker_to_robot(
                     direction, self.matrix_tracker_to_robot
+                )
+                if self.head_center is None:
+                    raise ValueError("Head center is unavailable for safe coil repulsion")
+                coil_box = box_from_tracker_to_robot(
+                    measurement.box_for(self.coil_index),
+                    self.matrix_tracker_to_robot,
+                )
+                direction = constrain_direction_away_from_head(
+                    direction, coil_box, self.head_center
                 )
                 direction = self._collision_direction_in_tool_space(direction)
         except (IndexError, TypeError, ValueError, RuntimeError) as error:

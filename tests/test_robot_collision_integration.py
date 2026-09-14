@@ -33,6 +33,7 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.control.matrix_tracker_to_robot = (np.eye(4), np.eye(4), np.eye(4))
         self.control.robot_pose_storage = DummyRobotPoseStorage([0, 0, 0, 0, 0, 0])
         self.control.tracker = coordinates.Tracker()
+        self.control.head_center = [0, -100, 0]
 
     def test_transforms_direction_from_base_to_tool_coordinates(self):
         self.control.robot_pose_storage = DummyRobotPoseStorage(
@@ -219,6 +220,27 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         )
 
         self.assertTrue(self.control.collision_avoidance.stop_latched)
+
+    def test_stops_when_coil_separation_would_move_toward_head(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "other": self._make_registration(3),
+                },
+            }
+        )
+        self.control.head_center = [-100, 0, 0]
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 12
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        self.assertTrue(self.control.collision_avoidance.stop_latched)
+        self.assertIn("No repulsion direction", self.control._collision_warning)
 
     @staticmethod
     def _make_registration(object_id):
