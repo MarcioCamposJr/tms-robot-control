@@ -15,7 +15,10 @@ import robot.transformations as tr
 from robot.control.algorithms.directly_PID import DirectlyPIDAlgorithm
 from robot.control.algorithms.directly_upward import DirectlyUpwardAlgorithm
 from robot.control.algorithms.radially_outward import RadiallyOutwardAlgorithm
-from robot.control.coil_geometry import CoilCollisionCalculator
+from robot.control.coil_geometry import (
+    CoilCollisionCalculator,
+    direction_from_tracker_to_robot,
+)
 from robot.control.collision_avoidance import (
     CollisionAvoidanceController,
     CollisionStage,
@@ -260,6 +263,7 @@ class RobotControl:
         if len(data) > 1:
             poses = data["poses"]
             visibilities = data["visibilities"]
+            self._update_collision_from_tracker_poses(poses, visibilities)
             self.tracker.SetCoordinates(
                 np.vstack([poses[0], poses[1], poses[self.coil_index]]), [visibilities[0], visibilities[1], visibilities[self.coil_index]]
             )
@@ -1429,18 +1433,47 @@ class RobotControl:
             distance_result = self.collision_avoidance.field.compute(distance)
             if distance_result.stage is CollisionStage.STOP:
                 direction = data.get("brake_vector", [0, 0, 0])
+            elif distance_result.stage is CollisionStage.CLEAR:
+                direction = data["brake_vector"]
             else:
                 direction = self._collision_direction_in_tool_space(
                     data["brake_vector"]
                 )
-            stage = self.collision_avoidance.update_measurement(distance, direction)
         except (KeyError, TypeError, ValueError) as error:
-            self.collision_avoidance.latch_stop()
-            self._activate_collision_stop(
-                f"Invalid coil collision measurement: {error}"
-            )
+            self._reject_collision_measurement(error)
             return False
 
+        self._store_collision_measurement(distance, direction)
+        return True
+
+    def _update_collision_from_tracker_poses(self, poses, visibilities):
+        calculator = self.coil_collision_calculator
+        if calculator is None:
+            return False
+
+        try:
+            if any(not bool(visibilities[index]) for index in calculator.object_ids):
+                # Do not refresh the measurement. The collision watchdog stops
+                # the robot if tracking does not recover within its timeout.
+                return False
+
+            measurement = calculator.measure(poses)
+            stage = self.collision_avoidance.field.compute(measurement.distance).stage
+            direction = measurement.direction_for(self.coil_index)
+            if stage not in (CollisionStage.STOP, CollisionStage.CLEAR):
+                direction = direction_from_tracker_to_robot(
+                    direction, self.matrix_tracker_to_robot
+                )
+                direction = self._collision_direction_in_tool_space(direction)
+        except (IndexError, TypeError, ValueError, RuntimeError) as error:
+            self._reject_collision_measurement(error)
+            return False
+
+        self._store_collision_measurement(measurement.distance, direction)
+        return True
+
+    def _store_collision_measurement(self, distance, direction):
+        stage = self.collision_avoidance.update_measurement(distance, direction)
         if stage is CollisionStage.STOP:
             self._activate_collision_stop(
                 f"Coil collision stop at {distance:.2f} mm"
@@ -1449,7 +1482,9 @@ class RobotControl:
             self._collision_safety_active = False
             self._collision_warning = None
 
-        return True
+    def _reject_collision_measurement(self, error):
+        self.collision_avoidance.latch_stop()
+        self._activate_collision_stop(f"Invalid coil collision measurement: {error}")
 
     def on_reset_collision_stop(self, data):
         if not self.collision_avoidance.reset_stop():

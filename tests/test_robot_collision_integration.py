@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 from robot.constants import COLLISION_AVOIDANCE_CONFIG
+from robot.control import coordinates
 from robot.control.collision_avoidance import (
     CollisionAvoidanceController,
     RepulsionConfig,
@@ -28,6 +29,10 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.control._collision_safety_active = False
         self.control._collision_warning = None
         self.control.coil_collision_calculator = None
+        self.control.coil_index = 2
+        self.control.matrix_tracker_to_robot = (np.eye(4), np.eye(4), np.eye(4))
+        self.control.robot_pose_storage = DummyRobotPoseStorage([0, 0, 0, 0, 0, 0])
+        self.control.tracker = coordinates.Tracker()
 
     def test_transforms_direction_from_base_to_tool_coordinates(self):
         self.control.robot_pose_storage = DummyRobotPoseStorage(
@@ -99,6 +104,66 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
 
         self.assertFalse(success)
         self.assertIs(self.control.coil_collision_calculator, original_calculator)
+
+    def test_calculates_own_repulsion_from_raw_tracker_poses(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "manual": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 12
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+        command = self.control.collision_avoidance.compute_command(0.01)
+
+        self.assertGreater(command.magnitude, 0)
+        self.assertLess(command.offset[0], 0)
+
+    def test_selects_opposite_direction_for_other_robot(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 3,
+                "registrations": {
+                    "first": self._make_registration(2),
+                    "robotized": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 12
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+        command = self.control.collision_avoidance.compute_command(0.01)
+
+        self.assertGreater(command.offset[0], 0)
+
+    def test_invisible_manual_coil_does_not_refresh_measurement(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "manual": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 12
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, False]}
+        )
+
+        self.assertFalse(self.control.collision_avoidance.has_measurement)
 
     @staticmethod
     def _make_registration(object_id):
