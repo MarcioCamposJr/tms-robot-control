@@ -45,6 +45,16 @@ class DummyRobotStateController:
         self.start_count += 1
 
 
+class DummyTrackerProcessing:
+    def __init__(self, control):
+        self.control = control
+        self.last_head_pose = None
+
+    def estimate_head_center_in_robot_space(self, matrix, head_pose):
+        self.last_head_pose = head_pose.copy()
+        return self.control.head_center
+
+
 class RobotCollisionIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.control = RobotControl.__new__(RobotControl)
@@ -63,6 +73,7 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.control.robot_pose_storage = DummyRobotPoseStorage([0, 0, 0, 0, 0, 0])
         self.control.tracker = coordinates.Tracker()
         self.control.head_center = [0, -100, 0]
+        self.control.process_tracker = DummyTrackerProcessing(self.control)
 
     def test_updates_collision_config(self):
         success = self.control.on_update_collision_config(
@@ -304,6 +315,49 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
 
         self.assertTrue(self.control.collision_avoidance.stop_latched)
         self.assertIn("No repulsion direction", self.control._collision_warning)
+
+    def test_uses_current_head_pose_for_repulsion_constraint(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "manual": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[1] = [10, 20, 30, 40, 50, 60]
+        poses[3, 0] = 12
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        np.testing.assert_array_equal(
+            self.control.process_tracker.last_head_pose,
+            [10, 20, 30, 60, 50, 40],
+        )
+
+    def test_missing_head_tracking_latches_stop_during_repulsion(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "manual": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 12
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, False, True, True]}
+        )
+
+        self.assertTrue(self.control.collision_avoidance.stop_latched)
+        self.assertIn("Head marker is not visible", self.control._collision_warning)
 
     def test_repulsion_overrides_any_movement_algorithm_in_base_coordinates(self):
         self.control.robot = DummyRobot()

@@ -1454,14 +1454,15 @@ class RobotControl:
                 direction = direction_from_tracker_to_robot(
                     direction, self.matrix_tracker_to_robot
                 )
-                if self.head_center is None:
-                    raise ValueError("Head center is unavailable for safe coil repulsion")
+                head_center = self._current_head_center_for_collision(
+                    poses, visibilities
+                )
                 coil_box = box_from_tracker_to_robot(
                     measurement.box_for(self.coil_index),
                     self.matrix_tracker_to_robot,
                 )
                 direction = constrain_direction_away_from_head(
-                    direction, coil_box, self.head_center
+                    direction, coil_box, head_center
                 )
         except (IndexError, TypeError, ValueError, RuntimeError) as error:
             self.collision_speed_estimator.reset()
@@ -1472,6 +1473,29 @@ class RobotControl:
             measurement.distance, direction, closing_speed
         )
         return True
+
+    def _current_head_center_for_collision(self, poses, visibilities):
+        if len(visibilities) <= 1 or not bool(visibilities[1]):
+            raise ValueError("Head marker is not visible for safe coil repulsion")
+
+        try:
+            head_pose = np.asarray(poses[1], dtype=float).copy()
+        except (IndexError, TypeError, ValueError) as error:
+            raise ValueError("Head pose is unavailable for safe coil repulsion") from error
+        if head_pose.ndim != 1 or head_pose.size < 6:
+            raise ValueError("Head pose is invalid for safe coil repulsion")
+        if not np.all(np.isfinite(head_pose[:6])):
+            raise ValueError("Head pose is invalid for safe coil repulsion")
+
+        # Match Tracker.SetCoordinates' conversion from tracker rzyx angles to
+        # the sxyz convention expected by TrackerProcessing.
+        head_pose[3], head_pose[5] = head_pose[5], head_pose[3]
+        head_center = self.process_tracker.estimate_head_center_in_robot_space(
+            self.matrix_tracker_to_robot, head_pose
+        )
+        if head_center is None:
+            raise ValueError("Head center is unavailable for safe coil repulsion")
+        return head_center
 
     def _store_collision_measurement(self, distance, direction, closing_speed=0.0):
         stage = self.collision_avoidance.update_measurement(
