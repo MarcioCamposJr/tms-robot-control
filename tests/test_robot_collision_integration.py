@@ -172,6 +172,30 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.assertTrue(self.control.collision_avoidance.stop_latched)
         self.assertTrue(self.control._collision_safety_active)
 
+    def test_moving_coils_apart_releases_collision_stop(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "other": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 3
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        poses[3, 0] = 12
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        self.assertFalse(self.control.collision_avoidance.stop_latched)
+        self.assertFalse(self.control._collision_safety_active)
+
     def test_invalid_local_pose_latches_collision_stop(self):
         self.control.on_set_collision_registrations(
             {

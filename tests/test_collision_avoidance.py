@@ -156,9 +156,9 @@ class CollisionAvoidanceControllerTests(unittest.TestCase):
         self.assertTrue(self.controller.measurement_is_stale())
         self.assertTrue(self.controller.stop_requested())
 
-    def test_emergency_stop_remains_latched(self):
+    def test_emergency_stop_remains_latched_inside_release_margin(self):
         self.controller.update_measurement(1, [0, 0, 0])
-        self.controller.update_measurement(10, [1, 0, 0])
+        self.controller.update_measurement(2, [1, 0, 0])
 
         command = self.controller.compute_command(0.01)
 
@@ -173,13 +173,13 @@ class CollisionAvoidanceControllerTests(unittest.TestCase):
 
         self.assertTrue(self.controller.stop_requested())
 
-    def test_releases_stop_only_beyond_release_distance(self):
+    def test_releases_stop_automatically_beyond_release_distance(self):
         self.controller.update_measurement(1, [0, 0, 0])
         self.controller.update_measurement(2, [1, 0, 0])
-        self.assertFalse(self.controller.reset_stop())
+        self.assertTrue(self.controller.stop_latched)
 
         self.controller.update_measurement(4, [1, 0, 0])
-        self.assertTrue(self.controller.reset_stop())
+        self.assertFalse(self.controller.stop_latched)
         self.assertFalse(self.controller.compute_command(0.01).stop_requested)
 
     def test_does_not_release_stop_from_stale_measurement(self):

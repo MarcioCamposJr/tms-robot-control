@@ -205,6 +205,12 @@ class CollisionAvoidanceController:
             self._stop_latched = True
         else:
             normalized_direction = self.field.normalize_direction(direction)
+            release_distance = (
+                self.config.stop_distance + self.config.stop_release_distance
+            )
+            if self._stop_latched and distance > release_distance:
+                self._stop_latched = False
+                self.reset_output()
 
         self._measurement = CoilDistanceMeasurement(
             distance=distance,
