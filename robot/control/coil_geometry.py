@@ -53,12 +53,21 @@ class CoilCollisionMeasurement:
     closest_point_b: np.ndarray
     brake_direction_a: np.ndarray
     brake_direction_b: np.ndarray
+    box_a: OrientedBoundingBox
+    box_b: OrientedBoundingBox
 
     def direction_for(self, object_id: int) -> np.ndarray:
         if object_id == self.object_id_a:
             return self.brake_direction_a.copy()
         if object_id == self.object_id_b:
             return self.brake_direction_b.copy()
+        raise ValueError(f"Tracker object ID {object_id} is not a collision coil")
+
+    def box_for(self, object_id: int) -> OrientedBoundingBox:
+        if object_id == self.object_id_a:
+            return self.box_a
+        if object_id == self.object_id_b:
+            return self.box_b
         raise ValueError(f"Tracker object ID {object_id} is not a collision coil")
 
 
@@ -231,6 +240,8 @@ def measure_obb_distance(
         closest_point_b=point_b,
         brake_direction_a=direction_a,
         brake_direction_b=direction_b,
+        box_a=box_a,
+        box_b=box_b,
     )
 
 
@@ -241,6 +252,76 @@ def direction_from_tracker_to_robot(direction, tracker_to_robot) -> np.ndarray:
     if direction.shape != (3,) or not np.all(np.isfinite(direction)):
         raise ValueError("Brake direction must contain three finite values")
 
+    matrix = _robot_affine(tracker_to_robot)
+
+    transformed = matrix[:3, :3] @ direction
+    norm = np.linalg.norm(transformed)
+    if norm <= 1e-9:
+        return np.zeros(3, dtype=float)
+    return transformed / norm
+
+
+def box_from_tracker_to_robot(
+    box: OrientedBoundingBox, tracker_to_robot
+) -> OrientedBoundingBox:
+    """Transform a tracker-space box to the robot BASE coordinate system."""
+
+    matrix = _robot_affine(tracker_to_robot)
+    return box.transformed(matrix[:3, 3], matrix[:3, :3])
+
+
+def closest_point_on_obb(box: OrientedBoundingBox, point) -> np.ndarray:
+    """Return the closest point on or inside a box to an arbitrary point."""
+
+    point = np.asarray(point, dtype=float)
+    if point.shape != (3,) or not np.all(np.isfinite(point)):
+        raise ValueError("Reference point must contain three finite values")
+
+    solution = lsq_linear(
+        box.half_axes.T,
+        point - box.center,
+        bounds=(-1.0, 1.0),
+        tol=1e-12,
+    )
+    if not solution.success:
+        raise RuntimeError(f"Unable to calculate closest box point: {solution.message}")
+    return box.center + box.half_axes.T @ solution.x
+
+
+def constrain_direction_away_from_head(
+    coil_direction, coil_box: OrientedBoundingBox, head_center
+) -> np.ndarray:
+    """Remove any component of coil repulsion that points toward the head."""
+
+    coil_direction = _normalize_direction(coil_direction, "Coil repulsion direction")
+    head_center = np.asarray(head_center, dtype=float)
+    closest_coil_point = closest_point_on_obb(coil_box, head_center)
+    head_direction = _normalize_direction(
+        closest_coil_point - head_center, "Head avoidance direction"
+    )
+
+    head_component = float(np.dot(coil_direction, head_direction))
+    if head_component >= 0:
+        return coil_direction
+
+    safe_direction = coil_direction - head_component * head_direction
+    safe_norm = np.linalg.norm(safe_direction)
+    if safe_norm <= 1e-6:
+        raise ValueError("No repulsion direction can separate the coils away from the head")
+    return safe_direction / safe_norm
+
+
+def _normalize_direction(direction, name):
+    direction = np.asarray(direction, dtype=float)
+    if direction.shape != (3,) or not np.all(np.isfinite(direction)):
+        raise ValueError(f"{name} must contain three finite values")
+    norm = np.linalg.norm(direction)
+    if norm <= 1e-9:
+        raise ValueError(f"{name} must not be zero")
+    return direction / norm
+
+
+def _robot_affine(tracker_to_robot):
     if isinstance(tracker_to_robot, (tuple, list)) and len(tracker_to_robot) == 3:
         matrix = np.asarray(tracker_to_robot[2], dtype=float)
     else:
@@ -254,9 +335,4 @@ def direction_from_tracker_to_robot(direction, tracker_to_robot) -> np.ndarray:
 
     if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
         raise ValueError("Tracker-to-robot affine matrix must have shape (4, 4)")
-
-    transformed = matrix[:3, :3] @ direction
-    norm = np.linalg.norm(transformed)
-    if norm <= 1e-9:
-        return np.zeros(3, dtype=float)
-    return transformed / norm
+    return matrix

@@ -6,7 +6,10 @@ from scipy.spatial.transform import Rotation
 from robot.control.coil_geometry import (
     CoilCollisionCalculator,
     OrientedBoundingBox,
+    box_from_tracker_to_robot,
+    closest_point_on_obb,
     coil_box_from_registration,
+    constrain_direction_away_from_head,
     direction_from_tracker_to_robot,
     measure_obb_distance,
 )
@@ -168,6 +171,45 @@ class DirectionTransformationTests(unittest.TestCase):
         result = direction_from_tracker_to_robot([1, 0, 0], affine)
 
         np.testing.assert_allclose(result, [0, 1, 0], atol=1e-12)
+
+    def test_transforms_complete_box_to_robot_base(self):
+        affine = np.eye(4)
+        affine[:3, 3] = [10, 20, 30]
+
+        result = box_from_tracker_to_robot(make_box([1, 2, 3]), affine)
+
+        np.testing.assert_allclose(result.center, [11, 22, 33])
+
+
+class HeadDirectionConstraintTests(unittest.TestCase):
+    def setUp(self):
+        self.coil_box = make_box([0, 0, 0])
+        self.head_center = np.array([0, -10, 0])
+
+    def test_preserves_repulsion_already_away_from_head(self):
+        result = constrain_direction_away_from_head(
+            [1, 1, 0], self.coil_box, self.head_center
+        )
+
+        self.assertGreater(result[1], 0)
+
+    def test_removes_component_toward_head(self):
+        result = constrain_direction_away_from_head(
+            [1, -1, 0], self.coil_box, self.head_center
+        )
+
+        np.testing.assert_allclose(result, [1, 0, 0], atol=1e-12)
+
+    def test_rejects_when_only_coil_separation_direction_points_at_head(self):
+        with self.assertRaises(ValueError):
+            constrain_direction_away_from_head(
+                [0, -1, 0], self.coil_box, self.head_center
+            )
+
+    def test_finds_closest_coil_surface_point_to_head(self):
+        point = closest_point_on_obb(self.coil_box, self.head_center)
+
+        np.testing.assert_allclose(point, [0, -1, 0], atol=1e-12)
 
     def test_accepts_robot_registration_tuple(self):
         affine = np.eye(4)
