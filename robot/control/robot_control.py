@@ -1427,25 +1427,6 @@ class RobotControl:
             self.on_set_objective({"objective": RobotObjective.NONE.value})
             self.robot.clean_errors()
 
-    def on_update_coil_distance(self, data):
-        try:
-            distance = float(data["distance"])
-            distance_result = self.collision_avoidance.field.compute(distance)
-            if distance_result.stage is CollisionStage.STOP:
-                direction = data.get("brake_vector", [0, 0, 0])
-            elif distance_result.stage is CollisionStage.CLEAR:
-                direction = data["brake_vector"]
-            else:
-                direction = self._collision_direction_in_tool_space(
-                    data["brake_vector"]
-                )
-        except (KeyError, TypeError, ValueError) as error:
-            self._reject_collision_measurement(error)
-            return False
-
-        self._store_collision_measurement(distance, direction)
-        return True
-
     def _update_collision_from_tracker_poses(self, poses, visibilities):
         calculator = self.coil_collision_calculator
         if calculator is None:

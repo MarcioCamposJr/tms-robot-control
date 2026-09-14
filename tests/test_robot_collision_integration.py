@@ -43,19 +43,6 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
 
         np.testing.assert_allclose(direction, [0, -1, 0], atol=1e-12)
 
-    def test_stop_measurement_does_not_require_robot_pose(self):
-        success = self.control.on_update_coil_distance({"distance": 1})
-
-        self.assertTrue(success)
-        self.assertTrue(self.control.collision_avoidance.stop_latched)
-        self.assertTrue(self.control._collision_safety_active)
-
-    def test_invalid_measurement_latches_stop(self):
-        success = self.control.on_update_coil_distance({"distance": "invalid"})
-
-        self.assertFalse(success)
-        self.assertTrue(self.control.collision_avoidance.stop_latched)
-
     def test_updates_collision_config(self):
         success = self.control.on_update_collision_config(
             {"config_updates": {"strength": 30}}
@@ -164,6 +151,45 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         )
 
         self.assertFalse(self.control.collision_avoidance.has_measurement)
+
+    def test_local_overlap_latches_collision_stop(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "other": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 3
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        self.assertTrue(self.control.collision_avoidance.stop_latched)
+        self.assertTrue(self.control._collision_safety_active)
+
+    def test_invalid_local_pose_latches_collision_stop(self):
+        self.control.on_set_collision_registrations(
+            {
+                "coil_idx": 2,
+                "registrations": {
+                    "robotized": self._make_registration(2),
+                    "other": self._make_registration(3),
+                },
+            }
+        )
+        poses = np.zeros((4, 6))
+        poses[3, 0] = np.nan
+
+        self.control.on_update_tracker_poses(
+            {"poses": poses, "visibilities": [True, True, True, True]}
+        )
+
+        self.assertTrue(self.control.collision_avoidance.stop_latched)
 
     @staticmethod
     def _make_registration(object_id):
