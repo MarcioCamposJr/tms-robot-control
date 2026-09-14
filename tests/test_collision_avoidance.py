@@ -5,6 +5,7 @@ import numpy as np
 
 from robot.constants import COLLISION_AVOIDANCE_CONFIG
 from robot.control.collision_avoidance import (
+    ClosingSpeedEstimator,
     CollisionAvoidanceController,
     CollisionStage,
     RepulsionConfig,
@@ -50,6 +51,12 @@ class RepulsionConfigTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             config.with_updates({"unknown": 1})
+
+    def test_rejects_invalid_dynamic_braking_values(self):
+        with self.assertRaises(ValueError):
+            RepulsionConfig(25, 22, 12, 5, safe_deceleration=0)
+        with self.assertRaises(ValueError):
+            RepulsionConfig(25, 22, 12, 5, velocity_smoothing=1)
 
 
 class RepulsionFieldTests(unittest.TestCase):
@@ -122,6 +129,60 @@ class RepulsionFieldTests(unittest.TestCase):
 
         self.assertTrue(result.stop_requested)
         np.testing.assert_array_equal(result.offset, np.zeros(3))
+
+    def test_closing_speed_advances_the_collision_stage(self):
+        stationary = self.field.compute(30, closing_speed=0)
+        approaching = self.field.compute(30, closing_speed=50)
+
+        self.assertEqual(stationary.stage, CollisionStage.CLEAR)
+        self.assertEqual(approaching.stage, CollisionStage.APPROACH)
+        self.assertGreater(approaching.dynamic_margin, 0)
+        self.assertLess(approaching.effective_distance, 30)
+
+    def test_rejects_invalid_closing_speed(self):
+        for speed in (-1, math.nan, math.inf):
+            with self.subTest(speed=speed), self.assertRaises(ValueError):
+                self.field.compute(10, closing_speed=speed)
+
+
+class ClosingSpeedEstimatorTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 10.0
+        self.estimator = ClosingSpeedEstimator(
+            smoothing=0.0,
+            max_closing_speed=300,
+            clock=lambda: self.now,
+        )
+
+    def test_first_sample_has_no_velocity(self):
+        speed = self.estimator.update([0, 0, 0], [100, 0, 0])
+
+        self.assertEqual(speed, 0)
+
+    def test_estimates_radial_closing_speed(self):
+        self.estimator.update([0, 0, 0], [100, 0, 0])
+        self.now += 0.1
+
+        speed = self.estimator.update([0, 0, 0], [90, 0, 0])
+
+        self.assertAlmostEqual(speed, 100)
+
+    def test_reports_zero_while_coils_separate(self):
+        self.estimator.update([0, 0, 0], [100, 0, 0])
+        self.now += 0.1
+
+        speed = self.estimator.update([0, 0, 0], [110, 0, 0])
+
+        self.assertEqual(speed, 0)
+
+    def test_reset_forgets_previous_sample(self):
+        self.estimator.update([0, 0, 0], [100, 0, 0])
+        self.estimator.reset()
+        self.now += 0.1
+
+        speed = self.estimator.update([0, 0, 0], [50, 0, 0])
+
+        self.assertEqual(speed, 0)
 
 
 class CollisionAvoidanceControllerTests(unittest.TestCase):

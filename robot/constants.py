@@ -153,6 +153,12 @@ COLLISION_AVOIDANCE_CONFIG = {
     "smoothing": 0.2,
     "measurement_timeout": 0.25,
     "stop_release_distance": 2.0,
+    # Dynamic clearance = speed * reaction_time + speed^2 / (2 * deceleration).
+    # Initial physical assumptions; validate them with measured stopping tests.
+    "reaction_time": 0.2,
+    "safe_deceleration": 500.0,
+    "velocity_smoothing": 0.8,
+    "max_closing_speed": 300.0,
 }
 
 # Per-face expansion of the registered coil bounding box, in mm. Lateral

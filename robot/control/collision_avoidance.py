@@ -25,6 +25,10 @@ class RepulsionConfig:
     smoothing: float = 0.2
     measurement_timeout: float = 0.25
     stop_release_distance: float = 2.0
+    reaction_time: float = 0.2
+    safe_deceleration: float = 500.0
+    velocity_smoothing: float = 0.8
+    max_closing_speed: float = 300.0
 
     def __post_init__(self):
         values = (
@@ -37,6 +41,10 @@ class RepulsionConfig:
             self.smoothing,
             self.measurement_timeout,
             self.stop_release_distance,
+            self.reaction_time,
+            self.safe_deceleration,
+            self.velocity_smoothing,
+            self.max_closing_speed,
         )
         if not all(math.isfinite(value) for value in values):
             raise ValueError("Repulsion configuration values must be finite")
@@ -48,6 +56,12 @@ class RepulsionConfig:
             raise ValueError("Repulsion smoothing must be in the range [0, 1)")
         if self.measurement_timeout <= 0 or self.stop_release_distance < 0:
             raise ValueError("Measurement timeout must be positive")
+        if self.reaction_time < 0 or self.safe_deceleration <= 0:
+            raise ValueError("Dynamic braking values must be non-negative")
+        if not 0 <= self.velocity_smoothing < 1:
+            raise ValueError("Velocity smoothing must be in the range [0, 1)")
+        if self.max_closing_speed <= 0:
+            raise ValueError("Maximum closing speed must be positive")
         if not 0 <= self.stop_distance < self.working_distance < self.safety_margin:
             raise ValueError(
                 "Expected stop_distance < working_distance < safety_margin"
@@ -81,6 +95,8 @@ class RepulsionConfig:
 class RepulsionResult:
     stage: CollisionStage
     magnitude: float
+    effective_distance: float
+    dynamic_margin: float
 
 
 @dataclass(frozen=True)
@@ -95,7 +111,64 @@ class RepulsionCommand:
 class CoilDistanceMeasurement:
     distance: float
     direction: np.ndarray
+    closing_speed: float
     timestamp: float
+
+
+class ClosingSpeedEstimator:
+    """Estimate radial closing speed from the centers of both coil boxes."""
+
+    def __init__(self, smoothing=0.8, max_closing_speed=300.0, clock=time.monotonic):
+        if not 0 <= smoothing < 1:
+            raise ValueError("Velocity smoothing must be in the range [0, 1)")
+        if not math.isfinite(max_closing_speed) or max_closing_speed <= 0:
+            raise ValueError("Maximum closing speed must be positive and finite")
+        self.smoothing = smoothing
+        self.max_closing_speed = max_closing_speed
+        self._clock = clock
+        self.reset()
+
+    def update(self, center_a, center_b) -> float:
+        center_a = self._validate_center(center_a)
+        center_b = self._validate_center(center_b)
+        timestamp = self._clock()
+        if not math.isfinite(timestamp):
+            raise ValueError("Velocity timestamp must be finite")
+
+        separation = float(np.linalg.norm(center_a - center_b))
+        if self._previous_distance is None:
+            self._previous_distance = separation
+            self._previous_timestamp = timestamp
+            return 0.0
+
+        delta_time = timestamp - self._previous_timestamp
+        if delta_time < 0:
+            raise ValueError("Monotonic clock moved backwards")
+        if delta_time > 1e-9:
+            radial_speed = (self._previous_distance - separation) / delta_time
+            radial_speed = float(
+                np.clip(radial_speed, -self.max_closing_speed, self.max_closing_speed)
+            )
+            self._filtered_speed = (
+                self.smoothing * self._filtered_speed
+                + (1 - self.smoothing) * radial_speed
+            )
+
+        self._previous_distance = separation
+        self._previous_timestamp = timestamp
+        return max(0.0, self._filtered_speed)
+
+    def reset(self):
+        self._previous_distance = None
+        self._previous_timestamp = None
+        self._filtered_speed = 0.0
+
+    @staticmethod
+    def _validate_center(center):
+        center = np.asarray(center, dtype=float)
+        if center.shape != (3,) or not np.all(np.isfinite(center)):
+            raise ValueError("Coil center must contain three finite values")
+        return center
 
 
 class RepulsionField:
@@ -104,34 +177,50 @@ class RepulsionField:
     def __init__(self, config: RepulsionConfig):
         self.config = config
 
-    def compute(self, distance: float) -> RepulsionResult:
+    def compute(self, distance: float, closing_speed: float = 0.0) -> RepulsionResult:
         if not math.isfinite(distance) or distance < 0:
             raise ValueError("Coil distance must be a finite, non-negative value")
+        if not math.isfinite(closing_speed) or closing_speed < 0:
+            raise ValueError("Closing speed must be a finite, non-negative value")
 
-        if distance <= self.config.stop_distance:
-            return RepulsionResult(CollisionStage.STOP, 0.0)
+        dynamic_margin = (
+            closing_speed * self.config.reaction_time
+            + closing_speed**2 / (2 * self.config.safe_deceleration)
+        )
+        effective_distance = max(0.0, distance - dynamic_margin)
 
-        if distance >= self.config.safety_margin:
-            return RepulsionResult(CollisionStage.CLEAR, 0.0)
+        if effective_distance <= self.config.stop_distance:
+            return RepulsionResult(
+                CollisionStage.STOP, 0.0, effective_distance, dynamic_margin
+            )
 
-        if distance <= self.config.working_distance:
-            normalized = distance / self.config.working_distance
+        if effective_distance >= self.config.safety_margin:
+            return RepulsionResult(
+                CollisionStage.CLEAR, 0.0, effective_distance, dynamic_margin
+            )
+
+        if effective_distance <= self.config.working_distance:
+            normalized = effective_distance / self.config.working_distance
             magnitude = self.config.strength * math.exp(2 * (1 - normalized))
-            return RepulsionResult(CollisionStage.WORKING, magnitude)
+            return RepulsionResult(
+                CollisionStage.WORKING, magnitude, effective_distance, dynamic_margin
+            )
 
-        normalized = (self.config.safety_margin - distance) / (
+        normalized = (self.config.safety_margin - effective_distance) / (
             self.config.safety_margin - self.config.working_distance
         )
         magnitude = self.config.strength * normalized**2
-        return RepulsionResult(CollisionStage.APPROACH, magnitude)
+        return RepulsionResult(
+            CollisionStage.APPROACH, magnitude, effective_distance, dynamic_margin
+        )
 
     def compute_offset(
-        self, distance: float, direction, delta_time: float
+        self, distance: float, direction, delta_time: float, closing_speed: float = 0.0
     ) -> RepulsionCommand:
         if not math.isfinite(delta_time) or delta_time < 0:
             raise ValueError("Delta time must be a finite, non-negative value")
 
-        result = self.compute(distance)
+        result = self.compute(distance, closing_speed)
         zero_offset = np.zeros(3, dtype=float)
 
         if result.stage is CollisionStage.STOP:
@@ -194,8 +283,10 @@ class CollisionAvoidanceController:
         self._stop_latched = True
         self.reset_output()
 
-    def update_measurement(self, distance: float, direction) -> CollisionStage:
-        result = self.field.compute(distance)
+    def update_measurement(
+        self, distance: float, direction, closing_speed: float = 0.0
+    ) -> CollisionStage:
+        result = self.field.compute(distance, closing_speed)
         timestamp = self._clock()
         if not math.isfinite(timestamp):
             raise ValueError("Measurement timestamp must be finite")
@@ -215,6 +306,7 @@ class CollisionAvoidanceController:
         self._measurement = CoilDistanceMeasurement(
             distance=distance,
             direction=normalized_direction,
+            closing_speed=closing_speed,
             timestamp=timestamp,
         )
         return result.stage
@@ -240,6 +332,7 @@ class CollisionAvoidanceController:
             self._measurement.distance,
             self._measurement.direction,
             delta_time,
+            self._measurement.closing_speed,
         )
         if command.stage is CollisionStage.CLEAR:
             self.reset_output()
@@ -264,6 +357,13 @@ class CollisionAvoidanceController:
             self.config.stop_distance + self.config.stop_release_distance
         )
         if self._measurement.distance <= release_distance:
+            return False
+        if (
+            self.field.compute(
+                self._measurement.distance, self._measurement.closing_speed
+            ).stage
+            is CollisionStage.STOP
+        ):
             return False
 
         self._stop_latched = False
