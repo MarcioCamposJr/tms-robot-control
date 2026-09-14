@@ -76,6 +76,39 @@ class CoilRegistrationTests(unittest.TestCase):
         np.testing.assert_allclose(box.center, [-10, -20, -30])
         np.testing.assert_allclose(box.half_axes, [[20, 0, 0], [0, 30, 0], [0, 0, 5]])
 
+    def test_expands_lateral_and_front_back_faces_independently(self):
+        registration = {
+            "fiducials": [
+                [-20, 0, 0],
+                [20, 0, 0],
+                [0, 30, 0],
+                [0, 0, 0],
+            ],
+            "orientations": [[0, 0, 0]] * 4,
+        }
+
+        box = coil_box_from_registration(
+            registration,
+            half_thickness=5,
+            lateral_expansion=1.5,
+            face_expansion=3,
+        )
+
+        np.testing.assert_allclose(
+            box.half_axes, [[21.5, 0, 0], [0, 31.5, 0], [0, 0, 8]]
+        )
+
+    def test_rejects_invalid_expansions(self):
+        registration = make_registration(2)
+
+        for lateral, face in ((-1, 0), (0, -1), (np.nan, 0)):
+            with self.subTest(lateral=lateral, face=face), self.assertRaises(ValueError):
+                coil_box_from_registration(
+                    registration,
+                    lateral_expansion=lateral,
+                    face_expansion=face,
+                )
+
     def test_rejects_invalid_registration(self):
         for registration in (
             {},

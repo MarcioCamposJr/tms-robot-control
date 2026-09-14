@@ -65,7 +65,13 @@ class CoilCollisionMeasurement:
 class CoilCollisionCalculator:
     """Calculate collision data for two registered tracker coils."""
 
-    def __init__(self, registrations, half_thickness=DEFAULT_COIL_HALF_THICKNESS_MM):
+    def __init__(
+        self,
+        registrations,
+        half_thickness=DEFAULT_COIL_HALF_THICKNESS_MM,
+        lateral_expansion=0.0,
+        face_expansion=0.0,
+    ):
         if not isinstance(registrations, dict) or len(registrations) != 2:
             raise ValueError("Collision calculation requires exactly two coils")
 
@@ -85,7 +91,15 @@ class CoilCollisionCalculator:
                 raise ValueError("Collision coils must use distinct tracker object IDs")
             object_ids.add(object_id)
             self._coils.append(
-                (object_id, coil_box_from_registration(registration, half_thickness))
+                (
+                    object_id,
+                    coil_box_from_registration(
+                        registration,
+                        half_thickness,
+                        lateral_expansion,
+                        face_expansion,
+                    ),
+                )
             )
 
     @property
@@ -114,12 +128,18 @@ class CoilCollisionCalculator:
 
 
 def coil_box_from_registration(
-    registration, half_thickness=DEFAULT_COIL_HALF_THICKNESS_MM
+    registration,
+    half_thickness=DEFAULT_COIL_HALF_THICKNESS_MM,
+    lateral_expansion=0.0,
+    face_expansion=0.0,
 ) -> OrientedBoundingBox:
     """Build a marker-local coil OBB from an InVesalius coil registration."""
 
     if not np.isfinite(half_thickness) or half_thickness <= 0:
         raise ValueError("Coil half-thickness must be a positive finite value")
+    expansions = (lateral_expansion, face_expansion)
+    if not all(np.isfinite(value) and value >= 0 for value in expansions):
+        raise ValueError("Coil box expansions must be finite and non-negative")
     if not isinstance(registration, dict):
         raise ValueError("Coil registration must be a dictionary")
 
@@ -148,7 +168,9 @@ def coil_box_from_registration(
     normal_norm = np.linalg.norm(normal)
     if normal_norm <= 1e-9:
         raise ValueError("Coil registration fiducials must not be collinear")
-    half_normal = normal / normal_norm * half_thickness
+    half_width = _expand_half_axis(half_width, lateral_expansion)
+    half_depth = _expand_half_axis(half_depth, lateral_expansion)
+    half_normal = normal / normal_norm * (half_thickness + face_expansion)
 
     marker_to_tracker = Rotation.from_euler(
         "ZYX", marker_orientation, degrees=True
@@ -165,6 +187,13 @@ def coil_box_from_registration(
             ]
         ),
     )
+
+
+def _expand_half_axis(axis, expansion):
+    norm = np.linalg.norm(axis)
+    if norm <= 1e-9:
+        raise ValueError("Coil registration half-axes must have positive length")
+    return axis * ((norm + expansion) / norm)
 
 
 def measure_obb_distance(
