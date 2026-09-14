@@ -108,6 +108,7 @@ class RobotControl:
         self.coil_collision_calculator = None
         self._last_collision_command_time = time.monotonic()
         self._collision_safety_active = False
+        self._collision_repulsion_active = False
         self._collision_warning = None
 
         self.force_sensor = None
@@ -517,20 +518,13 @@ class RobotControl:
         translation, angles_as_deg = self.on_coil_to_robot_alignment(displacement)
         # Update PID controllers
         if self.config.get("movement_algorithm") == "directly_PID":
-            collision_command = self._compute_collision_command()
-            if collision_command.stop_requested:
-                self._activate_collision_stop(self._collision_stop_reason())
-                return
-
             pressure_feedback = (
                 self.feedback_pressure_sensor if self.pressure_pid_active else None
             )
             self.pid_group.update_translation(translation, pressure_feedback)
             self.pid_group.update_rotation(angles_as_deg)
             self.z_offset = translation[2]
-            translation, angles_as_deg = self.pid_group.get_outputs(
-                collision_command.offset
-            )
+            translation, angles_as_deg = self.pid_group.get_outputs()
 
         self.displacement_to_target = list(translation) + list(angles_as_deg)
 
@@ -1344,6 +1338,11 @@ class RobotControl:
         # Force sensor acts only as a safety feature: stop and move up if any axis exceeds threshold.
         safety_warning = self._handle_force_sensor_safety()
 
+        collision_repulsion_warning = self._handle_collision_repulsion()
+        if collision_repulsion_warning:
+            self.update_navigation_variables(collision_repulsion_warning)
+            return True
+
         if self.objective == RobotObjective.NONE:
             success = self.handle_objective_none()
 
@@ -1464,7 +1463,6 @@ class RobotControl:
                 direction = constrain_direction_away_from_head(
                     direction, coil_box, self.head_center
                 )
-                direction = self._collision_direction_in_tool_space(direction)
         except (IndexError, TypeError, ValueError, RuntimeError) as error:
             self.collision_speed_estimator.reset()
             self._reject_collision_measurement(error)
@@ -1550,19 +1548,6 @@ class RobotControl:
             max_closing_speed=config.max_closing_speed,
         )
 
-    def _collision_direction_in_tool_space(self, direction):
-        direction = self.collision_avoidance.field.normalize_direction(direction)
-        robot_pose = self.robot_pose_storage.GetRobotPose()
-        if robot_pose is None or len(robot_pose) < 6:
-            raise ValueError("Robot pose is unavailable")
-
-        robot_matrix = robot_process.coordinates_to_transformation_matrix(
-            position=robot_pose[:3],
-            orientation=robot_pose[3:],
-            axes="sxyz",
-        )
-        return robot_matrix[:3, :3].T @ direction
-
     def _compute_collision_command(self):
         now = time.monotonic()
         delta_time = now - self._last_collision_command_time
@@ -1576,6 +1561,7 @@ class RobotControl:
 
     def _activate_collision_stop(self, reason):
         self._collision_warning = reason
+        self._collision_repulsion_active = False
         if self._collision_safety_active:
             return
 
@@ -1593,3 +1579,42 @@ class RobotControl:
             self._collision_safety_active = False
             self._collision_warning = None
         return None
+
+    def _handle_collision_repulsion(self):
+        command = self._compute_collision_command()
+        if command.stop_requested:
+            self._activate_collision_stop(self._collision_stop_reason())
+            return self._collision_warning
+
+        active_stages = (CollisionStage.APPROACH, CollisionStage.WORKING)
+        if command.stage not in active_stages:
+            self._collision_repulsion_active = False
+            return None
+
+        # With no automatic objective, do not unexpectedly move the robot or
+        # compete with free-drive. The hard-stop watchdog remains active.
+        if self.objective is RobotObjective.NONE:
+            self._collision_repulsion_active = False
+            return None
+
+        robot_pose = self.robot_pose_storage.GetRobotPose()
+        if robot_pose is None or len(robot_pose) < 6:
+            self._reject_collision_measurement("Robot pose is unavailable")
+            return self._collision_warning
+
+        if not self._collision_repulsion_active:
+            self.movement_algorithm.reset_state()
+            self._collision_repulsion_active = True
+
+        target = np.asarray(robot_pose, dtype=float).copy()
+        target[:3] += command.offset
+        speed_ratio = self.config["tuning_speed_ratio"]
+        success = self.robot.dynamic_motion(target.tolist(), speed_ratio)
+        if not success:
+            self._reject_collision_measurement(
+                "Robot rejected the coil repulsion movement"
+            )
+            return self._collision_warning
+
+        self.robot_state_controller.set_state_to_start_moving()
+        return f"Coil collision avoidance active ({command.stage.value})"

@@ -9,7 +9,7 @@ from robot.control.collision_avoidance import (
     CollisionAvoidanceController,
     RepulsionConfig,
 )
-from robot.control.robot_control import RobotControl
+from robot.control.robot_control import RobotControl, RobotObjective
 
 
 class DummyRobotPoseStorage:
@@ -18,6 +18,31 @@ class DummyRobotPoseStorage:
 
     def GetRobotPose(self):
         return self.pose
+
+
+class DummyRobot:
+    def __init__(self):
+        self.dynamic_calls = []
+
+    def dynamic_motion(self, target, speed_ratio):
+        self.dynamic_calls.append((target, speed_ratio))
+        return True
+
+
+class DummyMovementAlgorithm:
+    def __init__(self):
+        self.reset_count = 0
+
+    def reset_state(self):
+        self.reset_count += 1
+
+
+class DummyRobotStateController:
+    def __init__(self):
+        self.start_count = 0
+
+    def set_state_to_start_moving(self):
+        self.start_count += 1
 
 
 class RobotCollisionIntegrationTests(unittest.TestCase):
@@ -29,22 +54,15 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.control._reset_collision_speed_estimator()
         self.control.robot = None
         self.control._collision_safety_active = False
+        self.control._collision_repulsion_active = False
         self.control._collision_warning = None
+        self.control._last_collision_command_time = 0.0
         self.control.coil_collision_calculator = None
         self.control.coil_index = 2
         self.control.matrix_tracker_to_robot = (np.eye(4), np.eye(4), np.eye(4))
         self.control.robot_pose_storage = DummyRobotPoseStorage([0, 0, 0, 0, 0, 0])
         self.control.tracker = coordinates.Tracker()
         self.control.head_center = [0, -100, 0]
-
-    def test_transforms_direction_from_base_to_tool_coordinates(self):
-        self.control.robot_pose_storage = DummyRobotPoseStorage(
-            [0, 0, 0, 0, 0, 90]
-        )
-
-        direction = self.control._collision_direction_in_tool_space([1, 0, 0])
-
-        np.testing.assert_allclose(direction, [0, -1, 0], atol=1e-12)
 
     def test_updates_collision_config(self):
         success = self.control.on_update_collision_config(
@@ -286,6 +304,40 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
 
         self.assertTrue(self.control.collision_avoidance.stop_latched)
         self.assertIn("No repulsion direction", self.control._collision_warning)
+
+    def test_repulsion_overrides_any_movement_algorithm_in_base_coordinates(self):
+        self.control.robot = DummyRobot()
+        self.control.movement_algorithm = DummyMovementAlgorithm()
+        self.control.robot_state_controller = DummyRobotStateController()
+        self.control.config = {"tuning_speed_ratio": 0.15}
+        self.control.objective = RobotObjective.TRACK_TARGET
+        self.control.robot_pose_storage = DummyRobotPoseStorage(
+            [100, 200, 300, 10, 20, 30]
+        )
+        self.control.collision_avoidance.update_measurement(10, [-1, 0, 0])
+        self.control._last_collision_command_time -= 0.05
+
+        warning = self.control._handle_collision_repulsion()
+
+        self.assertIn("working", warning)
+        target, speed_ratio = self.control.robot.dynamic_calls[-1]
+        self.assertLess(target[0], 100)
+        self.assertEqual(target[1:], [200, 300, 10, 20, 30])
+        self.assertEqual(speed_ratio, 0.15)
+        self.assertEqual(self.control.movement_algorithm.reset_count, 1)
+
+    def test_repulsion_does_not_move_without_automatic_objective(self):
+        self.control.robot = DummyRobot()
+        self.control.movement_algorithm = DummyMovementAlgorithm()
+        self.control.robot_state_controller = DummyRobotStateController()
+        self.control.config = {"tuning_speed_ratio": 0.15}
+        self.control.objective = RobotObjective.NONE
+        self.control.collision_avoidance.update_measurement(10, [-1, 0, 0])
+
+        warning = self.control._handle_collision_repulsion()
+
+        self.assertIsNone(warning)
+        self.assertEqual(self.control.robot.dynamic_calls, [])
 
     @staticmethod
     def _make_registration(object_id):
