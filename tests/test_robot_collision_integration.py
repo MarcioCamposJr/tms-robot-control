@@ -75,6 +75,11 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
         self.assertEqual(self.control.coil_index, 2)
         self.assertEqual(self.control.coil_collision_calculator.object_ids, (2, 3))
 
+        poses = np.zeros((4, 6))
+        poses[3, 0] = 12
+        measurement = self.control.coil_collision_calculator.measure(poses)
+        self.assertAlmostEqual(measurement.distance, 7)
+
     def test_rejects_registrations_without_own_coil_atomically(self):
         original_calculator = object()
         self.control.coil_collision_calculator = original_calculator
@@ -188,7 +193,7 @@ class RobotCollisionIntegrationTests(unittest.TestCase):
             {"poses": poses, "visibilities": [True, True, True, True]}
         )
 
-        poses[3, 0] = 12
+        poses[3, 0] = 13
         self.control.on_update_tracker_poses(
             {"poses": poses, "visibilities": [True, True, True, True]}
         )

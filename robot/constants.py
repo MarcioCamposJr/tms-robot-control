@@ -155,6 +155,15 @@ COLLISION_AVOIDANCE_CONFIG = {
     "stop_release_distance": 2.0,
 }
 
+# Per-face expansion of the registered coil bounding box, in mm. Lateral
+# expansion applies to both in-plane axes; face expansion applies along the
+# normal to the coil plane, on its front and back faces.
+COIL_COLLISION_GEOMETRY_CONFIG = {
+    "half_thickness": 7.0,
+    "lateral_expansion": 1.5,
+    "face_expansion": 3.0,
+}
+
 # Publisher messages from invesalius to any robot
 # It's important these message to be in the PUB_MESSAGES list too
 PUB_MESSAGES_WL = [

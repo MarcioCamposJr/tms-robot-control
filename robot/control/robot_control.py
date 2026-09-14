@@ -1500,7 +1500,9 @@ class RobotControl:
             ):
                 raise ValueError("Own coil tracker object ID must be a non-negative integer")
 
-            calculator = CoilCollisionCalculator(data["registrations"])
+            calculator = CoilCollisionCalculator(
+                data["registrations"], **const.COIL_COLLISION_GEOMETRY_CONFIG
+            )
             if coil_index not in calculator.object_ids:
                 raise ValueError("Own coil is not present in the collision registrations")
         except (KeyError, TypeError, ValueError) as error:
