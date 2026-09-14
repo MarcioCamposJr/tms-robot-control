@@ -184,6 +184,21 @@ class ClosingSpeedEstimatorTests(unittest.TestCase):
 
         self.assertEqual(speed, 0)
 
+    def test_separating_motion_does_not_delay_a_closing_reversal(self):
+        estimator = ClosingSpeedEstimator(
+            smoothing=0.8,
+            max_closing_speed=300,
+            clock=lambda: self.now,
+        )
+        estimator.update([0, 0, 0], [100, 0, 0])
+        self.now += 0.1
+        self.assertEqual(estimator.update([0, 0, 0], [110, 0, 0]), 0)
+
+        self.now += 0.1
+        speed = estimator.update([0, 0, 0], [100, 0, 0])
+
+        self.assertGreater(speed, 0)
+
 
 class CollisionAvoidanceControllerTests(unittest.TestCase):
     def setUp(self):

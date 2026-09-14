@@ -149,14 +149,19 @@ class ClosingSpeedEstimator:
             radial_speed = float(
                 np.clip(radial_speed, -self.max_closing_speed, self.max_closing_speed)
             )
-            self._filtered_speed = (
-                self.smoothing * self._filtered_speed
-                + (1 - self.smoothing) * radial_speed
-            )
+            if radial_speed <= 0:
+                # Do not retain separating motion: a later reversal toward the
+                # other coil must be detected on its first valid sample.
+                self._filtered_speed = 0.0
+            else:
+                self._filtered_speed = (
+                    self.smoothing * self._filtered_speed
+                    + (1 - self.smoothing) * radial_speed
+                )
 
         self._previous_distance = separation
         self._previous_timestamp = timestamp
-        return max(0.0, self._filtered_speed)
+        return self._filtered_speed
 
     def reset(self):
         self._previous_distance = None
