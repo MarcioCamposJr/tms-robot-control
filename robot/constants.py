@@ -199,8 +199,6 @@ PUB_MESSAGES = [
     "Dashboard to Robot: Request pid factors",
     "Neuronavigation to Robot: Set coil index",
     "Neuronavigation to Robot: Reset errors",
-    "Neuronavigation to Robot: Reset collision error",
-    "Neuronavigation to Robot: Update repulsion field config",
     "Neuronavigation to Robot: Set coil collision registrations",
 ]
 
@@ -225,6 +223,4 @@ FUNCTION_REQUEST_CONFIG = 17
 FUNCTION_REQUEST_PID = 18
 FUNCTION_SET_COIL_INDEX = 19
 FUNCTION_CLEAN_ERRORS = 20
-FUNCTION_RESET_COLLISION_STOP = 21
-FUNCTION_UPDATE_COLLISION_CONFIG = 22
-FUNCTION_SET_COLLISION_REGISTRATIONS = 23
+FUNCTION_SET_COLLISION_REGISTRATIONS = 21

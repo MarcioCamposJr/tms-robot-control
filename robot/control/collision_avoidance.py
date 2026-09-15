@@ -1,6 +1,6 @@
 import math
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
@@ -66,30 +66,6 @@ class RepulsionConfig:
             raise ValueError(
                 "Expected stop_distance < working_distance < safety_margin"
             )
-
-    def with_updates(self, updates) -> "RepulsionConfig":
-        if not isinstance(updates, dict) or not updates:
-            raise ValueError("Repulsion configuration update must be a non-empty dict")
-
-        known_fields = set(asdict(self))
-        unknown_fields = set(updates) - known_fields
-        if unknown_fields:
-            names = ", ".join(sorted(unknown_fields))
-            raise ValueError(f"Unknown repulsion configuration fields: {names}")
-
-        converted_updates = {}
-        for name, value in updates.items():
-            if isinstance(value, bool):
-                raise ValueError(f"Repulsion configuration field {name} must be numeric")
-            try:
-                converted_updates[name] = float(value)
-            except (TypeError, ValueError) as error:
-                raise ValueError(
-                    f"Repulsion configuration field {name} must be numeric"
-                ) from error
-
-        return replace(self, **converted_updates)
-
 
 @dataclass(frozen=True)
 class RepulsionResult:
@@ -316,12 +292,6 @@ class CollisionAvoidanceController:
         )
         return result.stage
 
-    def update_config(self, updates):
-        new_config = self.config.with_updates(updates)
-        self.config = new_config
-        self.field = RepulsionField(new_config)
-        self.reset_output()
-
     def compute_command(self, delta_time: float) -> RepulsionCommand:
         if self._measurement is None:
             return self._empty_command(CollisionStage.UNAVAILABLE, False)
@@ -353,27 +323,6 @@ class CollisionAvoidanceController:
             self._smoothed_offset.copy(),
             command.stop_requested,
         )
-
-    def reset_stop(self) -> bool:
-        if self._measurement is None or self.measurement_is_stale():
-            return False
-
-        release_distance = (
-            self.config.stop_distance + self.config.stop_release_distance
-        )
-        if self._measurement.distance <= release_distance:
-            return False
-        if (
-            self.field.compute(
-                self._measurement.distance, self._measurement.closing_speed
-            ).stage
-            is CollisionStage.STOP
-        ):
-            return False
-
-        self._stop_latched = False
-        self.reset_output()
-        return True
 
     def reset_output(self):
         self._smoothed_offset.fill(0)

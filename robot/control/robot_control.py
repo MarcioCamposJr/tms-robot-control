@@ -1513,30 +1513,6 @@ class RobotControl:
         self.collision_avoidance.latch_stop()
         self._activate_collision_stop(f"Invalid coil collision measurement: {error}")
 
-    def on_reset_collision_stop(self, data):
-        if not self.collision_avoidance.reset_stop():
-            print("Collision stop cannot be reset without a fresh, safe measurement")
-            return False
-
-        self._collision_safety_active = False
-        self._collision_warning = None
-        print("Collision stop reset")
-        return True
-
-    def on_update_collision_config(self, data):
-        try:
-            self.collision_avoidance.update_config(data["config_updates"])
-        except (KeyError, TypeError, ValueError) as error:
-            print(f"Invalid collision avoidance configuration: {error}")
-            return False
-
-        self._reset_collision_speed_estimator()
-        print(
-            "Collision avoidance configuration updated: "
-            f"{self.collision_avoidance.config}"
-        )
-        return True
-
     def on_set_collision_registrations(self, data):
         try:
             coil_index = data["coil_idx"]
