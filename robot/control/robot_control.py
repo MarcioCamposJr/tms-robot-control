@@ -15,7 +15,7 @@ import robot.transformations as tr
 from robot.control.algorithms.directly_PID import DirectlyPIDAlgorithm
 from robot.control.algorithms.directly_upward import DirectlyUpwardAlgorithm
 from robot.control.algorithms.radially_outward import RadiallyOutwardAlgorithm
-from robot.control.coil_collision_tracker import CoilCollisionTracker
+from robot.control.coil_geometry import CoilCollisionTracker
 from robot.control.collision_avoidance import (
     CollisionAvoidanceController,
     CollisionStage,
