@@ -15,14 +15,8 @@ import robot.transformations as tr
 from robot.control.algorithms.directly_PID import DirectlyPIDAlgorithm
 from robot.control.algorithms.directly_upward import DirectlyUpwardAlgorithm
 from robot.control.algorithms.radially_outward import RadiallyOutwardAlgorithm
-from robot.control.coil_geometry import (
-    CoilCollisionCalculator,
-    box_from_tracker_to_robot,
-    constrain_direction_away_from_head,
-    direction_from_tracker_to_robot,
-)
+from robot.control.coil_collision_tracker import CoilCollisionTracker
 from robot.control.collision_avoidance import (
-    ClosingSpeedEstimator,
     CollisionAvoidanceController,
     CollisionStage,
     RepulsionConfig,
@@ -104,8 +98,7 @@ class RobotControl:
         self.collision_avoidance = CollisionAvoidanceController(
             RepulsionConfig(**const.COLLISION_AVOIDANCE_CONFIG)
         )
-        self._reset_collision_speed_estimator()
-        self.coil_collision_calculator = None
+        self.collision_tracker = CoilCollisionTracker(self.collision_avoidance)
         self._last_collision_command_time = time.monotonic()
         self._collision_safety_active = False
         self._collision_repulsion_active = False
@@ -1328,7 +1321,7 @@ class RobotControl:
 
         warning = None
 
-        collision_warning = self._handle_collision_safety()
+        collision_warning = self._enforce_collision_stop()
         if collision_warning:
             self.update_navigation_variables(collision_warning)
             return True
@@ -1338,7 +1331,7 @@ class RobotControl:
         # Force sensor acts only as a safety feature: stop and move up if any axis exceeds threshold.
         safety_warning = self._handle_force_sensor_safety()
 
-        collision_repulsion_warning = self._handle_collision_repulsion()
+        collision_repulsion_warning = self._apply_collision_repulsion()
         if collision_repulsion_warning:
             self.update_navigation_variables(collision_repulsion_warning)
             return True
@@ -1431,122 +1424,47 @@ class RobotControl:
             self.robot.clean_errors()
 
     def _update_collision_from_tracker_poses(self, poses, visibilities):
-        calculator = self.coil_collision_calculator
-        if calculator is None:
-            return False
-
         try:
-            if any(not bool(visibilities[index]) for index in calculator.object_ids):
-                # Do not refresh the measurement. The collision watchdog stops
-                # the robot if tracking does not recover within its timeout.
-                self.collision_speed_estimator.reset()
-                return False
-
-            measurement = calculator.measure(poses)
-            closing_speed = self.collision_speed_estimator.update(
-                measurement.box_a.center, measurement.box_b.center
+            result = self.collision_tracker.update_from_tracker_poses(
+                poses,
+                visibilities,
+                self.coil_index,
+                self.matrix_tracker_to_robot,
+                lambda: self.process_tracker.head_center_from_tracker_poses(
+                    poses, visibilities, self.matrix_tracker_to_robot
+                ),
             )
-            stage = self.collision_avoidance.field.compute(
-                measurement.distance, closing_speed
-            ).stage
-            direction = measurement.direction_for(self.coil_index)
-            if stage not in (CollisionStage.STOP, CollisionStage.CLEAR):
-                direction = direction_from_tracker_to_robot(
-                    direction, self.matrix_tracker_to_robot
-                )
-                head_center = self._current_head_center_for_collision(
-                    poses, visibilities
-                )
-                coil_box = box_from_tracker_to_robot(
-                    measurement.box_for(self.coil_index),
-                    self.matrix_tracker_to_robot,
-                )
-                direction = constrain_direction_away_from_head(
-                    direction, coil_box, head_center
-                )
         except (IndexError, TypeError, ValueError, RuntimeError) as error:
-            self.collision_speed_estimator.reset()
-            self._reject_collision_measurement(error)
+            self._stop_on_collision_error(error)
             return False
 
-        self._store_collision_measurement(
-            measurement.distance, direction, closing_speed
-        )
-        return True
-
-    def _current_head_center_for_collision(self, poses, visibilities):
-        if len(visibilities) <= 1 or not bool(visibilities[1]):
-            raise ValueError("Head marker is not visible for safe coil repulsion")
-
-        try:
-            head_pose = np.asarray(poses[1], dtype=float).copy()
-        except (IndexError, TypeError, ValueError) as error:
-            raise ValueError("Head pose is unavailable for safe coil repulsion") from error
-        if head_pose.ndim != 1 or head_pose.size < 6:
-            raise ValueError("Head pose is invalid for safe coil repulsion")
-        if not np.all(np.isfinite(head_pose[:6])):
-            raise ValueError("Head pose is invalid for safe coil repulsion")
-
-        # Match Tracker.SetCoordinates' conversion from tracker rzyx angles to
-        # the sxyz convention expected by TrackerProcessing.
-        head_pose[3], head_pose[5] = head_pose[5], head_pose[3]
-        head_center = self.process_tracker.estimate_head_center_in_robot_space(
-            self.matrix_tracker_to_robot, head_pose
-        )
-        if head_center is None:
-            raise ValueError("Head center is unavailable for safe coil repulsion")
-        return head_center
-
-    def _store_collision_measurement(self, distance, direction, closing_speed=0.0):
-        stage = self.collision_avoidance.update_measurement(
-            distance, direction, closing_speed
-        )
+        if result is None:
+            return False
+        stage, distance = result
         if stage is CollisionStage.STOP:
-            self._activate_collision_stop(
-                f"Coil collision stop at {distance:.2f} mm"
-            )
+            self._activate_collision_stop(f"Coil collision stop at {distance:.2f} mm")
         elif not self.collision_avoidance.stop_latched:
             self._collision_safety_active = False
             self._collision_warning = None
+        return True
 
-    def _reject_collision_measurement(self, error):
+    def _stop_on_collision_error(self, error):
         self.collision_avoidance.latch_stop()
-        self._activate_collision_stop(f"Invalid coil collision measurement: {error}")
+        self._activate_collision_stop(f"Coil collision safety error: {error}")
 
     def on_set_collision_registrations(self, data):
         try:
             coil_index = data["coil_idx"]
-            if (
-                not isinstance(coil_index, int)
-                or isinstance(coil_index, bool)
-                or coil_index < 0
-            ):
-                raise ValueError("Own coil tracker object ID must be a non-negative integer")
-
-            calculator = CoilCollisionCalculator(
-                data["registrations"], **const.COIL_COLLISION_GEOMETRY_CONFIG
+            self.collision_tracker.set_registrations(
+                data["registrations"], coil_index, **const.COIL_COLLISION_GEOMETRY_CONFIG
             )
-            if coil_index not in calculator.object_ids:
-                raise ValueError("Own coil is not present in the collision registrations")
         except (KeyError, TypeError, ValueError) as error:
             print(f"Invalid coil collision registrations: {error}")
             return False
 
         self.coil_index = coil_index
-        self.coil_collision_calculator = calculator
-        self.collision_speed_estimator.reset()
-        print(
-            "Coil collision registrations set for tracker objects "
-            f"{calculator.object_ids}"
-        )
+        print("Coil collision registrations set")
         return True
-
-    def _reset_collision_speed_estimator(self):
-        config = self.collision_avoidance.config
-        self.collision_speed_estimator = ClosingSpeedEstimator(
-            smoothing=config.velocity_smoothing,
-            max_closing_speed=config.max_closing_speed,
-        )
 
     def _compute_collision_command(self):
         now = time.monotonic()
@@ -1570,7 +1488,7 @@ class RobotControl:
         if self.robot is not None:
             self.stop_robot()
 
-    def _handle_collision_safety(self):
+    def _enforce_collision_stop(self):
         if self.collision_avoidance.stop_requested():
             self._activate_collision_stop(self._collision_stop_reason())
             return self._collision_warning
@@ -1580,7 +1498,7 @@ class RobotControl:
             self._collision_warning = None
         return None
 
-    def _handle_collision_repulsion(self):
+    def _apply_collision_repulsion(self):
         command = self._compute_collision_command()
         if command.stop_requested:
             self._activate_collision_stop(self._collision_stop_reason())
@@ -1599,7 +1517,7 @@ class RobotControl:
 
         robot_pose = self.robot_pose_storage.GetRobotPose()
         if robot_pose is None or len(robot_pose) < 6:
-            self._reject_collision_measurement("Robot pose is unavailable")
+            self._stop_on_collision_error("Robot pose is unavailable")
             return self._collision_warning
 
         if not self._collision_repulsion_active:
@@ -1611,7 +1529,7 @@ class RobotControl:
         speed_ratio = self.config["tuning_speed_ratio"]
         success = self.robot.dynamic_motion(target.tolist(), speed_ratio)
         if not success:
-            self._reject_collision_measurement(
+            self._stop_on_collision_error(
                 "Robot rejected the coil repulsion movement"
             )
             return self._collision_warning

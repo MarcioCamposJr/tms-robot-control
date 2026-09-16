@@ -473,6 +473,30 @@ class TrackerProcessing:
 
         return False
 
+    def head_center_from_tracker_poses(self, poses, visibilities, tracker_to_robot):
+        """Return the head center in robot space from a raw tracker frame."""
+        if len(visibilities) <= 1 or not bool(visibilities[1]):
+            raise ValueError("Head marker is not visible")
+
+        try:
+            head_pose = np.asarray(poses[1], dtype=float).copy()
+        except (IndexError, TypeError, ValueError) as error:
+            raise ValueError("Head pose is unavailable") from error
+        if head_pose.ndim != 1 or head_pose.size < 6:
+            raise ValueError("Head pose is invalid")
+        if not np.all(np.isfinite(head_pose[:6])):
+            raise ValueError("Head pose is invalid")
+
+        # Match Tracker.SetCoordinates' conversion from tracker rzyx angles to
+        # the sxyz convention expected by TrackerProcessing.
+        head_pose[3], head_pose[5] = head_pose[5], head_pose[3]
+        head_center = self.estimate_head_center_in_robot_space(
+            tracker_to_robot, head_pose
+        )
+        if head_center is None:
+            raise ValueError("Head center is unavailable")
+        return head_center
+
     def estimate_head_center_in_robot_space(
         self, m_tracker_to_robot, head_pose_in_tracker_space
     ):
