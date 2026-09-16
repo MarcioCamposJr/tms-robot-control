@@ -1,5 +1,3 @@
-import time
-
 import numpy as np
 
 
@@ -93,11 +91,6 @@ class RobotApi:
             self.on_update_displacement_to_target
         )
         connection.set_callback__set_objective(self.on_set_objective)
-        set_collision_registrations = getattr(
-            connection, "set_callback__set_collision_registrations", None
-        )
-        if callable(set_collision_registrations):
-            set_collision_registrations(self.on_set_collision_registrations)
 
     def connect_to_robot(self, robot_ip):
         if self.connection is not None:
@@ -106,11 +99,7 @@ class RobotApi:
 
     def update_poses(self, poses, visibilities):
         if self.connection is not None:
-            data = {
-                "poses": poses,
-                "visibilities": visibilities,
-                "_received_at": time.monotonic(),
-            }
+            data = {"poses": poses, "visibilities": visibilities}
             self.robot_control.on_update_tracker_poses(data)
 
     def on_coil_at_target(self, state):
@@ -147,15 +136,6 @@ class RobotApi:
                 ]
             }
             self.robot_control.on_set_tracker_fiducials(data)
-
-    def on_set_collision_registrations(self, registrations, coil_idx=None):
-        if self.connection is None:
-            return
-        if coil_idx is None and isinstance(registrations, dict):
-            data = registrations
-        else:
-            data = {"registrations": registrations, "coil_idx": coil_idx}
-        self.robot_control.on_set_collision_registrations(data)
 
     def on_create_point(self, data):
         if self.connection is not None:
