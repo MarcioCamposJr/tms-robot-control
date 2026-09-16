@@ -145,6 +145,9 @@ class CoilCollisionTracker:
     def __init__(self, controller, clock=time.monotonic):
         self.controller = controller
         self.calculator = None
+        self.coil_index = None
+        self._latest_coil_box = None
+        self._latest_head_center = None
         self.speed_estimator = ClosingSpeedEstimator(
             smoothing=controller.config.velocity_smoothing,
             max_closing_speed=controller.config.max_closing_speed,
@@ -163,10 +166,31 @@ class CoilCollisionTracker:
         if coil_index not in calculator.object_ids:
             raise ValueError("Own coil is not present in the collision registrations")
         self.calculator = calculator
+        self.coil_index = coil_index
         self.speed_estimator.reset()
+        self._latest_coil_box = None
+        self._latest_head_center = None
+        self.controller.activate_monitoring()
+
+    def set_coil_index(self, coil_index):
+        if (
+            not isinstance(coil_index, int)
+            or isinstance(coil_index, bool)
+            or coil_index < 0
+        ):
+            raise ValueError("Own coil tracker object ID must be a non-negative integer")
+        if self.calculator is None:
+            return
+        if coil_index not in self.calculator.object_ids:
+            raise ValueError("Own coil is not present in the collision registrations")
+        self.coil_index = coil_index
+        self.speed_estimator.reset()
+        self._latest_coil_box = None
+        self._latest_head_center = None
+        self.controller.activate_monitoring()
 
     def update_from_tracker_poses(
-        self, poses, visibilities, coil_index, tracker_to_robot, get_head_center
+        self, poses, visibilities, tracker_to_robot, get_head_center, timestamp=None
     ):
         """Return (stage, distance), or None when no new measurement is available.
 
@@ -180,31 +204,52 @@ class CoilCollisionTracker:
             if any(not bool(visibilities[i]) for i in self.calculator.object_ids):
                 # Keep the previous timestamp so the controller's watchdog expires.
                 self.speed_estimator.reset()
+                self._latest_coil_box = None
+                self._latest_head_center = None
                 return None
             measurement = self.calculator.measure(poses)
             closing_speed = self.speed_estimator.update(
-                measurement.box_a.center, measurement.box_b.center
+                measurement.box_a.center, measurement.box_b.center, timestamp
             )
             stage = self.controller.field.compute(
                 measurement.distance, closing_speed
             ).stage
-            direction = measurement.direction_for(coil_index)
+            direction = measurement.direction_for(self.coil_index)
             if stage not in (CollisionStage.STOP, CollisionStage.CLEAR):
                 direction = direction_from_tracker_to_robot(direction, tracker_to_robot)
                 head_center = get_head_center()
                 coil_box = box_from_tracker_to_robot(
-                    measurement.box_for(coil_index), tracker_to_robot
+                    measurement.box_for(self.coil_index), tracker_to_robot
                 )
                 direction = constrain_direction_away_from_head(
                     direction, coil_box, head_center
                 )
+                self._latest_coil_box = coil_box
+                self._latest_head_center = np.asarray(head_center, dtype=float).copy()
+            else:
+                self._latest_coil_box = None
+                self._latest_head_center = None
             stage = self.controller.update_measurement(
-                measurement.distance, direction, closing_speed
+                measurement.distance, direction, closing_speed, timestamp
             )
             return stage, measurement.distance
         except (IndexError, TypeError, ValueError, RuntimeError):
             self.speed_estimator.reset()
+            self._latest_coil_box = None
+            self._latest_head_center = None
             raise
+
+    def constrain_repulsion_offset(self, offset):
+        offset = np.asarray(offset, dtype=float)
+        magnitude = float(np.linalg.norm(offset))
+        if magnitude <= 1e-9:
+            return offset
+        if self._latest_coil_box is None or self._latest_head_center is None:
+            raise ValueError("Current collision geometry is unavailable")
+        direction = constrain_direction_away_from_head(
+            offset / magnitude, self._latest_coil_box, self._latest_head_center
+        )
+        return direction * magnitude
 
 
 def coil_box_from_registration(

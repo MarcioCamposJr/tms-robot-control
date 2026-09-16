@@ -104,10 +104,10 @@ class ClosingSpeedEstimator:
         self._clock = clock
         self.reset()
 
-    def update(self, center_a, center_b) -> float:
+    def update(self, center_a, center_b, timestamp=None) -> float:
         center_a = self._validate_center(center_a)
         center_b = self._validate_center(center_b)
-        timestamp = self._clock()
+        timestamp = self._clock() if timestamp is None else float(timestamp)
         if not math.isfinite(timestamp):
             raise ValueError("Velocity timestamp must be finite")
 
@@ -243,6 +243,7 @@ class CollisionAvoidanceController:
         self._measurement = None
         self._smoothed_offset = np.zeros(3, dtype=float)
         self._stop_latched = False
+        self._monitoring_enabled = False
 
     @property
     def has_measurement(self) -> bool:
@@ -254,23 +255,38 @@ class CollisionAvoidanceController:
 
     def measurement_is_stale(self) -> bool:
         if self._measurement is None:
-            return False
+            return self._monitoring_enabled
         return self._measurement_age() > self.config.measurement_timeout
 
     def stop_requested(self) -> bool:
-        return self._stop_latched or self.measurement_is_stale()
+        return self._monitoring_enabled and (
+            self._stop_latched or self.measurement_is_stale()
+        )
+
+    def activate_monitoring(self):
+        """Discard measurements that belong to a previous registration."""
+        self._monitoring_enabled = True
+        self._measurement = None
+        self._stop_latched = False
+        self.reset_output()
 
     def latch_stop(self):
         self._stop_latched = True
         self.reset_output()
 
     def update_measurement(
-        self, distance: float, direction, closing_speed: float = 0.0
+        self,
+        distance: float,
+        direction,
+        closing_speed: float = 0.0,
+        timestamp=None,
     ) -> CollisionStage:
         result = self.field.compute(distance, closing_speed)
-        timestamp = self._clock()
+        timestamp = self._clock() if timestamp is None else float(timestamp)
         if not math.isfinite(timestamp):
             raise ValueError("Measurement timestamp must be finite")
+        if timestamp > self._clock():
+            raise ValueError("Measurement timestamp must not be in the future")
 
         if result.stage is CollisionStage.STOP:
             normalized_direction = np.zeros(3, dtype=float)
@@ -294,7 +310,9 @@ class CollisionAvoidanceController:
 
     def compute_command(self, delta_time: float) -> RepulsionCommand:
         if self._measurement is None:
-            return self._empty_command(CollisionStage.UNAVAILABLE, False)
+            return self._empty_command(
+                CollisionStage.UNAVAILABLE, self._monitoring_enabled
+            )
 
         if self.measurement_is_stale():
             self.reset_output()

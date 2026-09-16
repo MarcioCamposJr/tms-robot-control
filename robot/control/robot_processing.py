@@ -415,7 +415,7 @@ class TrackerProcessing:
         )
 
         # Check that all fiducials are available.
-        if None in self.tracker_fiducials:
+        if any(fiducial is None for fiducial in self.tracker_fiducials):
             print("ERROR: Not all tracker fiducials are available:")
             if m_probe_head_left is None:
                 print("  Left ear fiducial is not available")
@@ -510,7 +510,7 @@ class TrackerProcessing:
 
         # Return early if tracker fiducials are not available (i.e., target has not been set yet,
         # as the tracker fiducials come together with the target.)
-        if None in self.tracker_fiducials:
+        if any(fiducial is None for fiducial in self.tracker_fiducials):
             return None
 
         # Return early if the transformation matrix from tracker to robot space is not available.

@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 
 
@@ -99,7 +101,11 @@ class RobotApi:
 
     def update_poses(self, poses, visibilities):
         if self.connection is not None:
-            data = {"poses": poses, "visibilities": visibilities}
+            data = {
+                "poses": poses,
+                "visibilities": visibilities,
+                "_received_at": time.monotonic(),
+            }
             self.robot_control.on_update_tracker_poses(data)
 
     def on_coil_at_target(self, state):
