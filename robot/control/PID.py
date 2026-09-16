@@ -1,4 +1,3 @@
-import math
 import time
 
 
@@ -138,24 +137,9 @@ class PIDControllerGroup:
         self.translation_pids[2].stiffness = stiffness
         self.translation_pids[2].damping = damping_ratio * stiffness
 
-    def get_outputs(self, translation_offset=None):
+    def get_outputs(self):
         # Return two lists, negated outputs for translation and rotation respectively
         trans_out = [-pid.output for pid in self.translation_pids]
-        if translation_offset is not None:
-            if len(translation_offset) != 3:
-                raise ValueError("Translation offset must contain three values")
-
-            for index, offset in enumerate(translation_offset):
-                offset = float(offset)
-                if not math.isfinite(offset):
-                    raise ValueError("Translation offset values must be finite")
-
-                pid = self.translation_pids[index]
-                combined_output = trans_out[index] + offset
-                trans_out[index] = max(
-                    pid.output_min, min(combined_output, pid.output_max)
-                )
-
         rot_out = [-pid.output for pid in self.rotation_pids]
         return trans_out, rot_out
 

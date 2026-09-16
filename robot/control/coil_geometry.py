@@ -211,9 +211,9 @@ class CoilCollisionTracker:
             closing_speed = self.speed_estimator.update(
                 measurement.box_a.center, measurement.box_b.center, timestamp
             )
-            stage = self.controller.field.compute(
+            stage = self.controller.classify_measurement(
                 measurement.distance, closing_speed
-            ).stage
+            )
             direction = measurement.direction_for(self.coil_index)
             if stage not in (CollisionStage.STOP, CollisionStage.CLEAR):
                 direction = direction_from_tracker_to_robot(direction, tracker_to_robot)

@@ -93,6 +93,11 @@ class RobotApi:
             self.on_update_displacement_to_target
         )
         connection.set_callback__set_objective(self.on_set_objective)
+        set_collision_registrations = getattr(
+            connection, "set_callback__set_collision_registrations", None
+        )
+        if callable(set_collision_registrations):
+            set_collision_registrations(self.on_set_collision_registrations)
 
     def connect_to_robot(self, robot_ip):
         if self.connection is not None:
@@ -142,6 +147,15 @@ class RobotApi:
                 ]
             }
             self.robot_control.on_set_tracker_fiducials(data)
+
+    def on_set_collision_registrations(self, registrations, coil_idx=None):
+        if self.connection is None:
+            return
+        if coil_idx is None and isinstance(registrations, dict):
+            data = registrations
+        else:
+            data = {"registrations": registrations, "coil_idx": coil_idx}
+        self.robot_control.on_set_collision_registrations(data)
 
     def on_create_point(self, data):
         if self.connection is not None:

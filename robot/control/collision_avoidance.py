@@ -274,6 +274,9 @@ class CollisionAvoidanceController:
         self._stop_latched = True
         self.reset_output()
 
+    def classify_measurement(self, distance, closing_speed=0.0) -> CollisionStage:
+        return self.field.compute(distance, closing_speed).stage
+
     def update_measurement(
         self,
         distance: float,
